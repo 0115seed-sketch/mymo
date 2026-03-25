@@ -1,11 +1,48 @@
 import { Extension } from '@tiptap/core'
 import { DOMSerializer } from '@tiptap/pm/model'
+import { TextSelection } from '@tiptap/pm/state'
+
+// 블록 컨테이너 노드 타입들
+const BLOCK_CONTAINERS = [
+  'tableCell', 'tableHeader',  // 셀 → 표
+  'column',                     // 열 → 멀티열
+  'detailsContent',             // 토글 내용
+  'table', 'multiColumn', 'detailsBlock', // 큰 블록 단위
+]
 
 export const KeyboardShortcuts = Extension.create({
   name: 'customKeyboardShortcuts',
 
   addKeyboardShortcuts() {
     return {
+      // Ctrl+A: 점진적 블록 단위 선택
+      // 1차: 현재 셀/열/토글 내용 선택
+      // 2차: 표/멀티열/토글 전체 선택
+      // 3차: 페이지 전체 선택
+      'Mod-a': () => {
+        const { state } = this.editor
+        const { from, to, $from } = state.selection
+
+        for (let depth = $from.depth; depth >= 1; depth--) {
+          const node = $from.node(depth)
+          if (!BLOCK_CONTAINERS.includes(node.type.name)) continue
+
+          const start = $from.start(depth)
+          const end = $from.end(depth)
+
+          // 이 레벨이 이미 완전히 선택되었으면 상위 레벨로
+          if (from <= start && to >= end) continue
+
+          this.editor.view.dispatch(
+            state.tr.setSelection(TextSelection.create(state.doc, start, end))
+          )
+          return true
+        }
+
+        // 모든 컨테이너가 선택된 상태 → 전체 선택
+        return false
+      },
+
       // Ctrl+D: 취소선 (Strikethrough)
       'Mod-d': () => this.editor.chain().focus().toggleStrike().run(),
 

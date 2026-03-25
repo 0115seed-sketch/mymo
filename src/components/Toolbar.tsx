@@ -170,6 +170,19 @@ const Toolbar: Component<ToolbarProps> = (props) => {
 
         <div class="w-px h-5 bg-gray-300 mx-1" />
 
+        {/* Text alignment */}
+        <button class={isActive('paragraph', { textAlign: 'left' }) === 'btn btn-active' || (!props.editor?.isActive({ textAlign: 'center' }) && !props.editor?.isActive({ textAlign: 'right' })) ? 'btn btn-active' : 'btn'} onClick={() => props.editor!.chain().focus().setTextAlign('left').run()} title="왼쪽 정렬">
+          ◧
+        </button>
+        <button class={props.editor?.isActive({ textAlign: 'center' }) ? 'btn btn-active' : 'btn'} onClick={() => props.editor!.chain().focus().setTextAlign('center').run()} title="중앙 정렬">
+          ◫
+        </button>
+        <button class={props.editor?.isActive({ textAlign: 'right' }) ? 'btn btn-active' : 'btn'} onClick={() => props.editor!.chain().focus().setTextAlign('right').run()} title="오른쪽 정렬">
+          ◨
+        </button>
+
+        <div class="w-px h-5 bg-gray-300 mx-1" />
+
         {/* Columns */}
         <button class="btn" onClick={() => (props.editor as any)!.chain().focus().setColumns(2).run()}>
           ▐▐ 2열
@@ -217,6 +230,70 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           <button class="btn text-red-500" onClick={() => props.editor!.chain().focus().deleteRow().run()} title="행 삭제">행✕</button>
           <button class="btn text-red-500" onClick={() => props.editor!.chain().focus().deleteColumn().run()} title="열 삭제">열✕</button>
           <button class="btn text-red-500" onClick={() => props.editor!.chain().focus().deleteTable().run()} title="표 삭제">표✕</button>
+          <div class="w-px h-5 bg-gray-300 mx-1" />
+          <button class="btn" onClick={() => {
+            const ed = props.editor!
+            const { state } = ed
+            const { $from } = state.selection
+            for (let d = $from.depth; d >= 0; d--) {
+              const node = $from.node(d)
+              if (node.type.name === 'table') {
+                // DOM에서 실제 테이블 너비 가져오기
+                const tableStart = $from.start(d) - 1
+                const tableDom = ed.view.nodeDOM(tableStart) as HTMLElement | null
+                const tableWrapper = tableDom?.closest('.tableWrapper') as HTMLElement | null
+                const tableEl = tableWrapper?.querySelector('table') || tableDom
+                const tableWidth = tableEl?.getBoundingClientRect().width || 600
+                const firstRow = node.child(0)
+                const colCount = firstRow.childCount
+                const equalWidth = Math.round(tableWidth / colCount)
+                const { tr } = state
+                let offset = 1
+                for (let r = 0; r < node.childCount; r++) {
+                  const row = node.child(r)
+                  offset += 1
+                  for (let c = 0; c < row.childCount; c++) {
+                    const cell = row.child(c)
+                    tr.setNodeMarkup(tableStart + offset, undefined, {
+                      ...cell.attrs,
+                      colwidth: [equalWidth],
+                    })
+                    offset += cell.nodeSize
+                  }
+                  offset += 1
+                }
+                ed.view.dispatch(tr)
+                break
+              }
+            }
+          }} title="셀 너비 같게">⇔너비</button>
+          <button class="btn" onClick={() => {
+            const ed = props.editor!
+            const { state } = ed
+            const { $from } = state.selection
+            // 현재 커서가 있는 표의 DOM 찾기
+            for (let d = $from.depth; d >= 0; d--) {
+              const node = $from.node(d)
+              if (node.type.name === 'table') {
+                const tableStart = $from.start(d) - 1
+                const tableDom = ed.view.nodeDOM(tableStart) as HTMLElement | null
+                const tableEl = tableDom?.querySelector('table') || tableDom?.closest('table') || tableDom
+                if (!tableEl) break
+                // 행별로 최대 높이 찾아서 적용
+                const rows = tableEl.querySelectorAll('tr')
+                rows.forEach((row) => {
+                  const cells = row.querySelectorAll('td, th')
+                  // 초기화
+                  cells.forEach((c) => { (c as HTMLElement).style.height = '' })
+                  // 최대 높이
+                  let maxH = 0
+                  cells.forEach((c) => { maxH = Math.max(maxH, (c as HTMLElement).offsetHeight) })
+                  cells.forEach((c) => { (c as HTMLElement).style.height = `${maxH}px` })
+                })
+                break
+              }
+            }
+          }} title="셀 높이 같게">⇕높이</button>
         </>}
 
         {/* Emoji */}

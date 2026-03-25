@@ -15,6 +15,7 @@ import { MultiColumn, Column } from '../extensions/MultiColumn'
 import { ActionButton } from '../extensions/ActionButton'
 import { DragHandle } from '../extensions/DragHandle'
 import { KeyboardShortcuts } from '../extensions/KeyboardShortcuts'
+import TextAlign from '@tiptap/extension-text-align'
 import Toolbar from './Toolbar'
 
 interface EditorViewProps {
@@ -63,6 +64,9 @@ const EditorView: Component<EditorViewProps> = (props) => {
         ActionButton,
         DragHandle,
         KeyboardShortcuts,
+        TextAlign.configure({
+          types: ['heading', 'paragraph'],
+        }),
       ],
       content: props.content ? JSON.parse(props.content) : undefined,
       onUpdate: ({ editor: e }) => {

@@ -32,14 +32,21 @@ body {
   border-radius: 4px;
 }
 
+/* Multi-block selection */
+.editor-content .tiptap .multi-selected-block {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 /* Drag handle (DragHandle plugin) */
 .drag-handle {
   position: fixed;
-  width: 20px;
-  height: 24px;
+  width: 24px;
+  height: 28px;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 16px;
   color: #9ca3af;
   cursor: grab;
   user-select: none;
@@ -145,6 +152,7 @@ body {
   width: 100%;
   margin: 0.75em 0;
   overflow: hidden;
+  table-layout: fixed;
 }
 
 .editor-content .tiptap table td,
@@ -154,6 +162,8 @@ body {
   min-width: 80px;
   vertical-align: top;
   position: relative;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .editor-content .tiptap table th {
@@ -531,6 +541,7 @@ body {
   border-collapse: collapse;
   width: 100%;
   margin: 0.5em 0;
+  table-layout: fixed;
 }
 .mini-editor .tiptap table td,
 .mini-editor .tiptap table th {
@@ -538,6 +549,8 @@ body {
   padding: 0.4em 0.6em;
   min-width: 60px;
   vertical-align: top;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 .mini-editor .tiptap table th {
   background: #f3f4f6;
@@ -546,6 +559,59 @@ body {
 .mini-editor .tiptap table td > p,
 .mini-editor .tiptap table th > p {
   margin: 0;
+}
+
+/* Mini editor multi-column styles */
+.mini-editor .tiptap .multi-column {
+  display: grid;
+  gap: 0.75em;
+  margin: 0.5em 0;
+}
+.mini-editor .tiptap .multi-column[data-columns="2"] {
+  grid-template-columns: 1fr 1fr;
+}
+.mini-editor .tiptap .multi-column[data-columns="3"] {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+.mini-editor .tiptap .column {
+  border: 1px dashed #d1d5db;
+  border-radius: 4px;
+  padding: 0.5em;
+  min-height: 2em;
+}
+.mini-editor .tiptap .column:focus-within {
+  border-color: #93c5fd;
+}
+
+/* Mini editor toggle styles */
+.mini-editor .tiptap details {
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 0.4em;
+  margin: 0.4em 0;
+}
+.mini-editor .tiptap details summary.toggle-summary {
+  cursor: pointer;
+  font-weight: 600;
+  user-select: none;
+  list-style: none;
+}
+.mini-editor .tiptap .toggle-content {
+  padding: 0.2em 0 0.2em 1em;
+}
+
+/* Text alignment */
+.editor-content .tiptap [style*="text-align: center"],
+.mini-editor .tiptap [style*="text-align: center"] {
+  text-align: center;
+}
+.editor-content .tiptap [style*="text-align: right"],
+.mini-editor .tiptap [style*="text-align: right"] {
+  text-align: right;
+}
+.editor-content .tiptap [style*="text-align: left"],
+.mini-editor .tiptap [style*="text-align: left"] {
+  text-align: left;
 }
 
 /* Color dropdown */

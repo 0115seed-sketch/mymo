@@ -9,6 +9,7 @@ import { Table } from '@tiptap/extension-table'
 import { TableRow } from '@tiptap/extension-table-row'
 import { TableCell } from '@tiptap/extension-table-cell'
 import { TableHeader } from '@tiptap/extension-table-header'
+import TextAlign from '@tiptap/extension-text-align'
 import { type NodeViewRendererProps } from '@tiptap/core'
 
 declare module '@tiptap/core' {
@@ -258,6 +259,45 @@ export const ActionButton = Node.create({
               renderHTML({ HTMLAttributes }: any) {
                 return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'column', class: 'column' }), 0]
               },
+            }),
+            // 토글(details) 지원
+            Node.create({
+              name: 'detailsBlock',
+              group: 'block',
+              content: 'detailsSummary detailsContent',
+              defining: true,
+              addAttributes() {
+                return {
+                  open: {
+                    default: true,
+                    parseHTML: (el: HTMLElement) => el.hasAttribute('open'),
+                    renderHTML: (attrs: Record<string, any>) => attrs.open ? { open: '' } : {},
+                  },
+                }
+              },
+              parseHTML() { return [{ tag: 'details' }] },
+              renderHTML({ HTMLAttributes }: any) { return ['details', mergeAttributes(HTMLAttributes), 0] },
+            }),
+            Node.create({
+              name: 'detailsSummary',
+              content: 'inline*',
+              defining: true,
+              parseHTML() { return [{ tag: 'summary' }] },
+              renderHTML({ HTMLAttributes }: any) {
+                return ['summary', mergeAttributes(HTMLAttributes, { class: 'toggle-summary' }), 0]
+              },
+            }),
+            Node.create({
+              name: 'detailsContent',
+              content: 'block+',
+              defining: true,
+              parseHTML() { return [{ tag: 'div[data-type="toggle-content"]' }] },
+              renderHTML({ HTMLAttributes }: any) {
+                return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'toggle-content', class: 'toggle-content' }), 0]
+              },
+            }),
+            TextAlign.configure({
+              types: ['heading', 'paragraph'],
             }),
           ],
           content: initialContent || { type: 'doc', content: [{ type: 'paragraph' }] },

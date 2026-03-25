@@ -1,7 +1,10 @@
 import { Extension } from '@tiptap/core'
-import { Plugin, PluginKey, NodeSelection, TextSelection } from '@tiptap/pm/state'
+import { Plugin, PluginKey, type Transaction } from '@tiptap/pm/state'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import { DOMSerializer, Fragment } from '@tiptap/pm/model'
 
 const dragHandleKey = new PluginKey('dragHandle')
+const multiSelectKey = new PluginKey('multiBlockSelect')
 
 export const DragHandle = Extension.create({
   name: 'dragHandle',
@@ -18,6 +21,11 @@ export const DragHandle = Extension.create({
     let currentNodeDOM: HTMLElement | null = null
     let hideTimeout: ReturnType<typeof setTimeout> | null = null
     let isDragging = false
+    let lastSelectedPos: number | null = null
+    // 핸들로 선택된 블록 위치 목록
+    let selectedBlockPositions: number[] = []
+    // 핸들 조작 중인지 (선택 초기화 방지용)
+    let isHandleAction = false
 
     const editorView = this.editor.view
 
@@ -147,29 +155,65 @@ export const DragHandle = Extension.create({
       return { pos: last.pos + (lastNode?.nodeSize || 1), rect: last.rect }
     }
 
+    // 데코레이션만 갱신하는 헬퍼 (선택 범위 변경 없음, 블록별 개별 처리)
+    const applyBlockSelection = () => {
+      if (selectedBlockPositions.length === 0) return
+      isHandleAction = true
+      const tr = editorView.state.tr.setMeta(multiSelectKey, true)
+      editorView.dispatch(tr)
+      isHandleAction = false
+      // 에디터 포커스 복원 (사이드바 등 외부 클릭 후에도 키보드/클립보드 동작하도록)
+      editorView.focus()
+    }
+
     const onHandleMouseDown = (e: MouseEvent) => {
       if (currentNodePos == null) return
       e.preventDefault()
       e.stopPropagation()
 
+      const clickedPos = currentNodePos
+      const doc = editorView.state.doc
+      const clickedNode = doc.nodeAt(clickedPos)
+      if (!clickedNode) return
+
+      // Shift+클릭: 마지막 선택 블록부터 현재 블록까지 범위의 모든 블록 선택
+      if (e.shiftKey && lastSelectedPos != null) {
+        const fromPos = Math.min(lastSelectedPos, clickedPos)
+        const toPos = Math.max(lastSelectedPos, clickedPos)
+        selectedBlockPositions = []
+        let pos = 0
+        for (let i = 0; i < doc.childCount; i++) {
+          const child = doc.child(i)
+          if (pos >= fromPos && pos <= toPos) {
+            selectedBlockPositions.push(pos)
+          }
+          pos += child.nodeSize
+        }
+        applyBlockSelection()
+        return
+      }
+
+      // Ctrl+클릭: 개별 블록 토글
+      if (e.ctrlKey || e.metaKey) {
+        const idx = selectedBlockPositions.indexOf(clickedPos)
+        if (idx >= 0) {
+          selectedBlockPositions.splice(idx, 1)
+        } else {
+          selectedBlockPositions.push(clickedPos)
+        }
+        lastSelectedPos = clickedPos
+        applyBlockSelection()
+        return
+      }
+
+      // 일반 클릭: 단일 블록 선택 + 드래그 시작
+      lastSelectedPos = clickedPos
+      selectedBlockPositions = [clickedPos]
       isDragging = true
       dragStarted = false
       dragStartY = e.clientY
 
-      // Select the node visually
-      try {
-        const tr = editorView.state.tr.setSelection(
-          NodeSelection.create(editorView.state.doc, currentNodePos)
-        )
-        editorView.dispatch(tr)
-      } catch {
-        // For non-selectable nodes like table, use TextSelection at start
-        try {
-          const $pos = editorView.state.doc.resolve(currentNodePos)
-          const tr = editorView.state.tr.setSelection(TextSelection.create(editorView.state.doc, $pos.pos))
-          editorView.dispatch(tr)
-        } catch { /* ignore */ }
-      }
+      applyBlockSelection()
 
       document.addEventListener('mousemove', onDocMouseMoveDrag)
       document.addEventListener('mouseup', onDocMouseUpDrag)
@@ -336,6 +380,130 @@ export const DragHandle = Extension.create({
               document.removeEventListener('mouseup', onDocMouseUpDrag)
             },
           }
+        },
+      }),
+      // 멀티 블록 선택 데코레이션 + 선택 변경 감지
+      new Plugin({
+        key: multiSelectKey,
+        props: {
+          handleKeyDown(view, event) {
+            if (selectedBlockPositions.length === 0) return false
+            // Delete/Backspace: 선택된 블록만 삭제
+            if (event.key === 'Delete' || event.key === 'Backspace') {
+              event.preventDefault()
+              const sorted = [...selectedBlockPositions].sort((a, b) => b - a)
+              const { tr } = view.state
+              for (const pos of sorted) {
+                const mapped = tr.mapping.map(pos)
+                const node = tr.doc.nodeAt(mapped)
+                if (node) {
+                  tr.delete(mapped, mapped + node.nodeSize)
+                }
+              }
+              selectedBlockPositions = []
+              tr.setMeta(multiSelectKey, true)
+              isHandleAction = true
+              view.dispatch(tr)
+              isHandleAction = false
+              return true
+            }
+            return false
+          },
+          handleDOMEvents: {
+            copy(view, event) {
+              if (selectedBlockPositions.length === 0) return false
+              const ce = event as ClipboardEvent
+              const sorted = [...selectedBlockPositions].sort((a, b) => a - b)
+              const doc = view.state.doc
+              const nodes: any[] = []
+              for (const pos of sorted) {
+                const node = doc.nodeAt(pos)
+                if (node) nodes.push(node)
+              }
+              if (nodes.length === 0) return false
+              const fragment = Fragment.from(nodes)
+              const serializer = DOMSerializer.fromSchema(view.state.schema)
+              const div = document.createElement('div')
+              div.appendChild(serializer.serializeFragment(fragment))
+              ce.preventDefault()
+              ce.clipboardData?.clearData()
+              ce.clipboardData?.setData('text/html', div.innerHTML)
+              ce.clipboardData?.setData('text/plain', div.textContent || '')
+              return true
+            },
+            cut(view, event) {
+              if (selectedBlockPositions.length === 0) return false
+              const ce = event as ClipboardEvent
+              const sorted = [...selectedBlockPositions].sort((a, b) => a - b)
+              const doc = view.state.doc
+              const nodes: any[] = []
+              for (const pos of sorted) {
+                const node = doc.nodeAt(pos)
+                if (node) nodes.push(node)
+              }
+              if (nodes.length === 0) return false
+              const fragment = Fragment.from(nodes)
+              const serializer = DOMSerializer.fromSchema(view.state.schema)
+              const div = document.createElement('div')
+              div.appendChild(serializer.serializeFragment(fragment))
+              ce.preventDefault()
+              ce.clipboardData?.clearData()
+              ce.clipboardData?.setData('text/html', div.innerHTML)
+              ce.clipboardData?.setData('text/plain', div.textContent || '')
+              // 선택된 블록만 삭제
+              const sortedDesc = [...selectedBlockPositions].sort((a, b) => b - a)
+              const { tr } = view.state
+              for (const pos of sortedDesc) {
+                const mapped = tr.mapping.map(pos)
+                const node = tr.doc.nodeAt(mapped)
+                if (node) {
+                  tr.delete(mapped, mapped + node.nodeSize)
+                }
+              }
+              selectedBlockPositions = []
+              tr.setMeta(multiSelectKey, true)
+              isHandleAction = true
+              view.dispatch(tr)
+              isHandleAction = false
+              return true
+            },
+          },
+          decorations(state) {
+            const doc = state.doc
+            // 핸들로 블록이 선택된 경우 (1개 이상)
+            if (selectedBlockPositions.length >= 1) {
+              const decorations: Decoration[] = []
+              for (const blockPos of selectedBlockPositions) {
+                const node = doc.nodeAt(blockPos)
+                if (node) {
+                  decorations.push(
+                    Decoration.node(blockPos, blockPos + node.nodeSize, { class: 'multi-selected-block' })
+                  )
+                }
+              }
+              if (decorations.length > 0) {
+                return DecorationSet.create(doc, decorations)
+              }
+            }
+            return DecorationSet.empty
+          },
+        },
+        // 선택이 변경될 때 핸들 선택 초기화 (핸들 조작이 아닌 경우)
+        appendTransaction(transactions: readonly Transaction[], _oldState, newState) {
+          // 핸들 조작 중이면 초기화하지 않음
+          if (isHandleAction) return null
+          // 우리 meta가 있으면 무시
+          for (const tr of transactions) {
+            if (tr.getMeta(multiSelectKey)) return null
+          }
+          // 선택이 변경된 트랜잭션이 있으면 초기화
+          const selChanged = transactions.some(tr => tr.selectionSet || tr.docChanged)
+          if (selChanged && selectedBlockPositions.length > 0) {
+            selectedBlockPositions = []
+            // 데코레이션 갱신을 위한 빈 트랜잭션
+            return newState.tr.setMeta(multiSelectKey, true)
+          }
+          return null
         },
       }),
     ]
