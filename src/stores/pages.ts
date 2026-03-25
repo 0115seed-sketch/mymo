@@ -1,5 +1,12 @@
 import { createSignal } from 'solid-js'
 import { db, type Page, type Folder } from '../db'
+import {
+  syncPageToCloud,
+  syncFolderToCloud,
+  deletePageFromCloud,
+  deleteFolderFromCloud,
+} from './sync'
+import { user } from './auth'
 
 const generateId = () => crypto.randomUUID()
 
@@ -54,12 +61,22 @@ export function createPageStore() {
     await db.pages.add(page)
     await loadPages()
     setCurrentPageId(page.id)
+    // 백그라운드 클라우드 동기화 (로컬 저장 후 fire-and-forget)
+    const uid = user()?.uid
+    if (uid) syncPageToCloud(uid, page)
     return page
   }
 
   const updatePage = async (id: string, updates: Partial<Pick<Page, 'title' | 'content' | 'folderId'>>) => {
-    await db.pages.update(id, { ...updates, updatedAt: Date.now() })
+    const updatedAt = Date.now()
+    await db.pages.update(id, { ...updates, updatedAt })
     await loadPages()
+    // 백그라운드 클라우드 동기화
+    const uid = user()?.uid
+    if (uid) {
+      const page = await db.pages.get(id)
+      if (page) syncPageToCloud(uid, page)
+    }
   }
 
   // Soft delete → move to trash
@@ -70,12 +87,23 @@ export function createPageStore() {
       const active = pages().filter(p => !p.deleted)
       setCurrentPageId(active.length > 0 ? active[0].id : null)
     }
+    // 백그라운드 클라우드 동기화 (소프트 삭제 반영)
+    const uid = user()?.uid
+    if (uid) {
+      const page = await db.pages.get(id)
+      if (page) syncPageToCloud(uid, page)
+    }
   }
 
   // Restore from trash
   const restorePage = async (id: string) => {
     await db.pages.update(id, { deleted: false, updatedAt: Date.now() })
     await loadPages()
+    const uid = user()?.uid
+    if (uid) {
+      const page = await db.pages.get(id)
+      if (page) syncPageToCloud(uid, page)
+    }
   }
 
   // Permanent delete
@@ -86,13 +114,18 @@ export function createPageStore() {
       const active = pages().filter(p => !p.deleted)
       setCurrentPageId(active.length > 0 ? active[0].id : null)
     }
+    const uid = user()?.uid
+    if (uid) deletePageFromCloud(uid, id)
   }
 
   // Empty trash
   const emptyTrash = async () => {
     const trashed = pages().filter(p => p.deleted)
-    await db.pages.bulkDelete(trashed.map(p => p.id))
+    const ids = trashed.map(p => p.id)
+    await db.pages.bulkDelete(ids)
     await loadPages()
+    const uid = user()?.uid
+    if (uid) ids.forEach(id => deletePageFromCloud(uid, id))
   }
 
   // --- Folder CRUD ---
@@ -106,12 +139,19 @@ export function createPageStore() {
     }
     await db.folders.add(folder)
     await loadFolders()
+    const uid = user()?.uid
+    if (uid) syncFolderToCloud(uid, folder)
     return folder
   }
 
   const renameFolder = async (id: string, name: string) => {
     await db.folders.update(id, { name })
     await loadFolders()
+    const uid = user()?.uid
+    if (uid) {
+      const folder = await db.folders.get(id)
+      if (folder) syncFolderToCloud(uid, folder)
+    }
   }
 
   const deleteFolder = async (id: string) => {
@@ -122,6 +162,15 @@ export function createPageStore() {
     }
     await db.folders.delete(id)
     await Promise.all([loadPages(), loadFolders()])
+    const uid = user()?.uid
+    if (uid) {
+      deleteFolderFromCloud(uid, id)
+      // 루트로 이동된 페이지들도 클라우드에 반영
+      for (const p of pagesInThisFolder) {
+        const page = await db.pages.get(p.id)
+        if (page) syncPageToCloud(uid, page)
+      }
+    }
   }
 
   return {
