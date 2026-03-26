@@ -760,3 +760,16 @@ body {
 .emoji-item:hover {
   background: #f3f4f6;
 }
+
+/* ── 모바일 반응형: 멀티 열 세로 스택 + 표 가로 스크롤 ── */
+@media (max-width: 640px) {
+  .editor-content .tiptap .multi-column[data-columns="2"],
+  .editor-content .tiptap .multi-column[data-columns="3"] {
+    grid-template-columns: 1fr;
+  }
+
+  .editor-content .tiptap table {
+    width: max-content;
+    table-layout: auto;
+  }
+}
