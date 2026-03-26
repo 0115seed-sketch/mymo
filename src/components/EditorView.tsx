@@ -21,16 +21,33 @@ import { Plugin, PluginKey } from '@tiptap/pm/state'
 import Toolbar from './Toolbar'
 import { darkMode } from '../stores/settings'
 
-// ── 행 높이 드래그 리사이즈 플러그인 ──
-const rowResizePluginKey = new PluginKey('rowResize')
+// ── 테이블 노드 위치 찾기 헬퍼 ──
+function findTablePos(view: any, tableEl: HTMLElement): number {
+  const editorDom = view.dom
+  const tables = editorDom.querySelectorAll('table')
+  let tableIndex = -1
+  tables.forEach((t: Element, i: number) => { if (t === tableEl) tableIndex = i })
+  if (tableIndex === -1) return -1
 
+  let count = 0
+  let found = -1
+  view.state.doc.descendants((node: any, pos: number) => {
+    if (node.type.name === 'table') {
+      if (count === tableIndex) found = pos
+      count++
+    }
+  })
+  return found
+}
+
+// ── 행 높이 드래그 리사이즈 플러그인 ──
 const RowResize = Extension.create({
   name: 'rowResize',
 
   addProseMirrorPlugins() {
     return [
       new Plugin({
-        key: rowResizePluginKey,
+        key: new PluginKey('rowResize'),
         props: {
           handleDOMEvents: {
             mousedown: (view, event) => {
@@ -38,14 +55,18 @@ const RowResize = Extension.create({
               if (!target.classList.contains('row-resize-handle')) return false
 
               event.preventDefault()
-              const tr = target.closest('tr') as HTMLTableRowElement | null
-              if (!tr) return false
+              event.stopPropagation()
+              const cell = target.closest('td, th') as HTMLElement | null
+              const tr = cell?.closest('tr') as HTMLTableRowElement | null
+              const tableEl = tr?.closest('table') as HTMLTableElement | null
+              if (!tr || !tableEl) return false
 
               const startY = event.clientY
               const startHeight = tr.offsetHeight
 
               const onMouseMove = (e: MouseEvent) => {
-                const newHeight = Math.max(30, startHeight + (e.clientY - startY))
+                const delta = e.clientY - startY
+                const newHeight = Math.max(30, startHeight + delta)
                 tr.style.height = `${newHeight}px`
                 const cells = tr.querySelectorAll('td, th')
                 cells.forEach(c => { (c as HTMLElement).style.height = `${newHeight}px` })
@@ -55,70 +76,148 @@ const RowResize = Extension.create({
                 document.removeEventListener('mousemove', onMouseMove)
                 document.removeEventListener('mouseup', onMouseUp)
                 document.body.style.cursor = ''
+                document.body.style.userSelect = ''
 
                 const finalHeight = Math.max(30, startHeight + (e.clientY - startY))
-
-                // ProseMirror 트랜잭션으로 rowHeight 설정 (Ctrl+Z 가능)
-                const { state } = view
-                const tableEl = tr.closest('table')
-                if (!tableEl) return
-
-                // 에디터 DOM에서 table 노드를 찾기
-                const editorDom = view.dom
-                const tables = editorDom.querySelectorAll('table')
-                let tableIndex = -1
-                tables.forEach((t, i) => { if (t === tableEl) tableIndex = i })
-                if (tableIndex === -1) return
-
-                // 문서에서 table 노드 위치 찾기
-                let tableCount = 0
-                let tablePos = -1
-                state.doc.descendants((node, pos) => {
-                  if (node.type.name === 'table') {
-                    if (tableCount === tableIndex) {
-                      tablePos = pos
-                    }
-                    tableCount++
-                  }
-                })
+                const tablePos = findTablePos(view, tableEl)
                 if (tablePos === -1) return
 
-                const tableNode = state.doc.nodeAt(tablePos)
+                const tableNode = view.state.doc.nodeAt(tablePos)
                 if (!tableNode) return
 
-                // 해당 행의 인덱스 찾기
-                const rows = tr.parentElement?.querySelectorAll('tr')
-                if (!rows) return
+                // 행 인덱스 찾기
+                const allRows = tableEl.querySelectorAll(':scope > thead > tr, :scope > tbody > tr, :scope > tr')
                 let rowIndex = -1
-                rows.forEach((r, i) => { if (r === tr) rowIndex = i })
+                allRows.forEach((r, i) => { if (r === tr) rowIndex = i })
                 if (rowIndex === -1) return
 
-                // 트랜잭션 생성
-                const { tr: transaction } = state
-                let offset = 1 // table 시작 후 첫 행까지
+                // 단일 트랜잭션으로 해당 행의 모든 셀에 rowHeight 설정
+                const { tr: transaction } = view.state
+                let offset = 1
                 for (let r = 0; r < tableNode.childCount; r++) {
                   const row = tableNode.child(r)
-                  offset += 1 // tableRow 노드 시작
+                  offset += 1
                   if (r === rowIndex) {
                     for (let c = 0; c < row.childCount; c++) {
-                      const cell = row.child(c)
+                      const cellNode = row.child(c)
                       transaction.setNodeMarkup(tablePos + offset, undefined, {
-                        ...cell.attrs,
+                        ...cellNode.attrs,
                         rowHeight: finalHeight,
                       })
-                      offset += cell.nodeSize
+                      offset += cellNode.nodeSize
                     }
                   } else {
                     for (let c = 0; c < row.childCount; c++) {
                       offset += row.child(c).nodeSize
                     }
                   }
-                  offset += 1 // tableRow 노드 끝
+                  offset += 1
                 }
                 view.dispatch(transaction)
               }
 
               document.body.style.cursor = 'row-resize'
+              document.body.style.userSelect = 'none'
+              document.addEventListener('mousemove', onMouseMove)
+              document.addEventListener('mouseup', onMouseUp)
+              return true
+            },
+          },
+        },
+      }),
+    ]
+  },
+})
+
+// ── 열 너비 드래그 리사이즈 플러그인 (Ctrl+Z 지원) ──
+const ColResize = Extension.create({
+  name: 'colResize',
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('colResize'),
+        props: {
+          handleDOMEvents: {
+            mousedown: (view, event) => {
+              const target = event.target as HTMLElement
+              if (!target.classList.contains('col-resize-handle')) return false
+
+              event.preventDefault()
+              event.stopPropagation()
+              const cell = target.closest('td, th') as HTMLElement | null
+              const tableEl = cell?.closest('table') as HTMLTableElement | null
+              if (!cell || !tableEl) return false
+
+              const startX = event.clientX
+              const startWidth = cell.offsetWidth
+
+              // 오른쪽 이웃 셀 찾기
+              const nextCell = cell.nextElementSibling as HTMLElement | null
+              const nextStartWidth = nextCell ? nextCell.offsetWidth : 0
+
+              const onMouseMove = (e: MouseEvent) => {
+                const delta = e.clientX - startX
+                const newWidth = Math.max(50, startWidth + delta)
+                cell.style.width = `${newWidth}px`
+                if (nextCell) {
+                  const nextWidth = Math.max(50, nextStartWidth - delta)
+                  nextCell.style.width = `${nextWidth}px`
+                }
+              }
+
+              const onMouseUp = (e: MouseEvent) => {
+                document.removeEventListener('mousemove', onMouseMove)
+                document.removeEventListener('mouseup', onMouseUp)
+                document.body.style.cursor = ''
+                document.body.style.userSelect = ''
+
+                const delta = e.clientX - startX
+                const newWidth = Math.max(50, startWidth + delta)
+                const nextWidth = nextCell ? Math.max(50, nextStartWidth - delta) : 0
+
+                const tablePos = findTablePos(view, tableEl)
+                if (tablePos === -1) return
+
+                const tableNode = view.state.doc.nodeAt(tablePos)
+                if (!tableNode) return
+
+                // 현재 셀의 열 인덱스 찾기
+                const tr = cell.closest('tr')
+                if (!tr) return
+                const cellsInRow = tr.querySelectorAll('td, th')
+                let colIndex = -1
+                cellsInRow.forEach((c, i) => { if (c === cell) colIndex = i })
+                if (colIndex === -1) return
+
+                // 단일 트랜잭션: 모든 행에서 해당 열(+옆 열)의 colwidth 업데이트
+                const { tr: transaction } = view.state
+                let offset = 1
+                for (let r = 0; r < tableNode.childCount; r++) {
+                  const row = tableNode.child(r)
+                  offset += 1
+                  for (let c = 0; c < row.childCount; c++) {
+                    const cellNode = row.child(c)
+                    if (c === colIndex) {
+                      transaction.setNodeMarkup(tablePos + offset, undefined, {
+                        ...cellNode.attrs,
+                        colwidth: [newWidth],
+                      })
+                    } else if (c === colIndex + 1 && nextCell) {
+                      transaction.setNodeMarkup(tablePos + offset, undefined, {
+                        ...cellNode.attrs,
+                        colwidth: [nextWidth],
+                      })
+                    }
+                    offset += cellNode.nodeSize
+                  }
+                  offset += 1
+                }
+                view.dispatch(transaction)
+              }
+
+              document.body.style.cursor = 'col-resize'
+              document.body.style.userSelect = 'none'
               document.addEventListener('mousemove', onMouseMove)
               document.addEventListener('mouseup', onMouseUp)
               return true
@@ -166,7 +265,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
         TextStyle,
         Color,
         Table.configure({
-          resizable: true,
+          resizable: false,
         }),
         TableRow,
         CustomTableCell,
@@ -180,6 +279,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
           types: ['heading', 'paragraph'],
         }),
         RowResize,
+        ColResize,
       ],
       content: props.content ? JSON.parse(props.content) : undefined,
       onUpdate: ({ editor: e }) => {
@@ -195,22 +295,29 @@ const EditorView: Component<EditorViewProps> = (props) => {
     })
     setEditor(ed)
 
-    // 테이블 셀에 row-resize-handle 자동 삽입
-    const addRowResizeHandles = () => {
+    // 테이블 셀에 리사이즈 핸들 자동 삽입
+    const addResizeHandles = () => {
       const cells = editorElement.querySelectorAll('.tiptap table td, .tiptap table th')
       cells.forEach(cell => {
+        // 행 높이 핸들 (하단)
         if (!cell.querySelector('.row-resize-handle')) {
           const handle = document.createElement('div')
           handle.className = 'row-resize-handle'
+          cell.appendChild(handle)
+        }
+        // 열 너비 핸들 (우측)
+        if (!cell.querySelector('.col-resize-handle')) {
+          const handle = document.createElement('div')
+          handle.className = 'col-resize-handle'
           cell.appendChild(handle)
         }
       })
     }
 
     // 초기 실행 + DOM 변경 감시
-    setTimeout(addRowResizeHandles, 100)
+    setTimeout(addResizeHandles, 100)
     const observer = new MutationObserver(() => {
-      setTimeout(addRowResizeHandles, 50)
+      requestAnimationFrame(addResizeHandles)
     })
     observer.observe(editorElement, { childList: true, subtree: true })
 
