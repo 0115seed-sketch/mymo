@@ -24,6 +24,23 @@ const sharedAttributes = {
       }
     },
   },
+  colwidth: {
+    default: null,
+    parseHTML: (element: HTMLElement) => {
+      const w = element.getAttribute('colwidth') || element.getAttribute('data-colwidth')
+      if (w) return w.split(',').map(Number)
+      const sw = element.style.width
+      if (sw && sw.endsWith('px')) return [parseInt(sw, 10)]
+      return null
+    },
+    renderHTML: (attributes: Record<string, any>) => {
+      if (!attributes.colwidth) return {}
+      return {
+        'data-colwidth': attributes.colwidth.join(','),
+        style: `width: ${attributes.colwidth[0]}px`,
+      }
+    },
+  },
 }
 
 export const CustomTableCell = TableCell.extend({

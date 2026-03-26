@@ -236,7 +236,7 @@ body {
 }
 
 .editor-content .tiptap table th {
-  font-weight: 600;
+  font-weight: normal;
 }
 
 .editor-content .tiptap table td > p,
@@ -658,8 +658,7 @@ body {
   overflow-wrap: break-word;
 }
 .mini-editor .tiptap table th {
-  background: var(--bg-tertiary);
-  font-weight: 600;
+  font-weight: normal;
 }
 .mini-editor .tiptap table td > p,
 .mini-editor .tiptap table th > p {
