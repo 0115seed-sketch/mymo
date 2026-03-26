@@ -18,7 +18,7 @@ export const KeyboardShortcuts = Extension.create({
       const { state } = this.editor
       const sel = state.selection as any
 
-      if (sel.constructor.name !== 'CellSelection' || !this.editor.isActive('table')) {
+      if (!sel.$anchorCell || !this.editor.isActive('table')) {
         return false
       }
 
@@ -122,7 +122,7 @@ export const KeyboardShortcuts = Extension.create({
         const { selection } = state
 
         // Check if it's a CellSelection (from @tiptap/pm/tables)
-        if (selection.constructor.name === 'CellSelection' && this.editor.isActive('table')) {
+        if (selection.$anchorCell && this.editor.isActive('table')) {
           const cellSelection = selection as any
 
           if (cellSelection.$anchorCell) {

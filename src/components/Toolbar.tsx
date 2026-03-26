@@ -271,7 +271,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
                   const sel = state.selection as any
                   const selectedColIndices = new Set<number>()
 
-                  if (sel.constructor.name === 'CellSelection' && sel.ranges) {
+                  if (sel.$anchorCell && sel.ranges) {
                     let offset = tableStart + 1
                     for (let r = 0; r < node.childCount; r++) {
                       const row = node.child(r)
@@ -344,7 +344,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
                   const sel = state.selection as any
                   const selectedRowIndices = new Set<number>()
 
-                  if (sel.constructor.name === 'CellSelection' && sel.ranges) {
+                  if (sel.$anchorCell && sel.ranges) {
                     // CellSelection: 선택된 셀이 속한 행만
                     let offset = tableStart + 1
                     for (let r = 0; r < node.childCount; r++) {

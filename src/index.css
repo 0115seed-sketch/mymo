@@ -218,7 +218,7 @@ body {
 /* Table styles */
 .editor-content .tiptap table {
   border-collapse: collapse;
-  min-width: 100%;
+  width: 100%;
   margin: 0.75em 0;
   overflow: hidden;
   table-layout: fixed;
@@ -644,7 +644,7 @@ body {
 /* Mini editor table styles */
 .mini-editor .tiptap table {
   border-collapse: collapse;
-  min-width: 100%;
+  width: 100%;
   margin: 0.5em 0;
   table-layout: fixed;
 }
