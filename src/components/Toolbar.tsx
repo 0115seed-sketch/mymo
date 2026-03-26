@@ -266,9 +266,46 @@ const Toolbar: Component<ToolbarProps> = (props) => {
                   const tableWrapper = tableDom?.closest('.tableWrapper') as HTMLElement | null
                   const tableEl = tableWrapper?.querySelector('table') || tableDom
                   const tableWidth = tableEl?.getBoundingClientRect().width || 600
-                  const firstRow = node.child(0)
-                  const colCount = firstRow.childCount
-                  const equalWidth = Math.round(tableWidth / colCount)
+
+                  // 선택된 열 인덱스 구하기 (CellSelection이면 선택된 셀의 열만)
+                  const sel = state.selection as any
+                  const selectedColIndices = new Set<number>()
+
+                  if (sel.constructor.name === 'CellSelection' && sel.ranges) {
+                    let offset = tableStart + 1
+                    for (let r = 0; r < node.childCount; r++) {
+                      const row = node.child(r)
+                      offset += 1
+                      for (let c = 0; c < row.childCount; c++) {
+                        const cellNode = row.child(c)
+                        const cellStart = offset
+                        for (const range of sel.ranges) {
+                          if (range.$from.pos >= cellStart && range.$from.pos < cellStart + cellNode.nodeSize) {
+                            selectedColIndices.add(c)
+                            break
+                          }
+                        }
+                        offset += cellNode.nodeSize
+                      }
+                      offset += 1
+                    }
+                  } else {
+                    // 일반 커서: 전체 열
+                    const firstRow = node.child(0)
+                    for (let c = 0; c < firstRow.childCount; c++) selectedColIndices.add(c)
+                  }
+
+                  if (selectedColIndices.size === 0) break
+
+                  // 선택된 열들의 총 너비를 구해 균등 분배
+                  const firstRowCells = (tableEl as HTMLElement).querySelectorAll(':scope > thead > tr:first-child > td, :scope > thead > tr:first-child > th, :scope > tbody > tr:first-child > td, :scope > tbody > tr:first-child > th, :scope > tr:first-child > td, :scope > tr:first-child > th')
+                  let totalSelectedWidth = 0
+                  selectedColIndices.forEach(c => {
+                    const cellEl = firstRowCells[c]
+                    if (cellEl) totalSelectedWidth += (cellEl as HTMLElement).offsetWidth
+                  })
+                  const equalWidth = Math.round(totalSelectedWidth / selectedColIndices.size)
+
                   const { tr } = state
                   let offset = 1
                   for (let r = 0; r < node.childCount; r++) {
@@ -276,10 +313,12 @@ const Toolbar: Component<ToolbarProps> = (props) => {
                     offset += 1
                     for (let c = 0; c < row.childCount; c++) {
                       const cell = row.child(c)
-                      tr.setNodeMarkup(tableStart + offset, undefined, {
-                        ...cell.attrs,
-                        colwidth: [equalWidth],
-                      })
+                      if (selectedColIndices.has(c)) {
+                        tr.setNodeMarkup(tableStart + offset, undefined, {
+                          ...cell.attrs,
+                          colwidth: [equalWidth],
+                        })
+                      }
                       offset += cell.nodeSize
                     }
                     offset += 1
