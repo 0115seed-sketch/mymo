@@ -303,14 +303,33 @@ const Toolbar: Component<ToolbarProps> = (props) => {
                   const tableDom = ed.view.nodeDOM(tableStart) as HTMLElement | null
                   const tableEl = tableDom?.querySelector('table') || tableDom?.closest('table') || tableDom
                   if (!tableEl) break
-                  const rows = tableEl.querySelectorAll('tr')
-                  rows.forEach((row) => {
-                    const cells = row.querySelectorAll('td, th')
-                    cells.forEach((c) => { (c as HTMLElement).style.height = '' })
+                  // 행별로 DOM에서 실제 높이를 측정한 뒤 tr 속성으로 설정 (Ctrl+Z 가능)
+                  const { tr } = state
+                  let offset = 1
+                  const rowEls = tableEl.querySelectorAll('tr')
+                  for (let r = 0; r < node.childCount; r++) {
+                    const row = node.child(r)
+                    const rowEl = rowEls[r]
+                    offset += 1
+                    // 행의 최대 셀 높이 측정
                     let maxH = 0
-                    cells.forEach((c) => { maxH = Math.max(maxH, (c as HTMLElement).offsetHeight) })
-                    cells.forEach((c) => { (c as HTMLElement).style.height = `${maxH}px` })
-                  })
+                    if (rowEl) {
+                      const cells = rowEl.querySelectorAll('td, th')
+                      cells.forEach((c) => { (c as HTMLElement).style.height = '' })
+                      cells.forEach((c) => { maxH = Math.max(maxH, (c as HTMLElement).offsetHeight) })
+                    }
+                    // 트랜잭션으로 rowHeight 속성 설정
+                    for (let c = 0; c < row.childCount; c++) {
+                      const cell = row.child(c)
+                      tr.setNodeMarkup(tableStart + offset, undefined, {
+                        ...cell.attrs,
+                        rowHeight: maxH || null,
+                      })
+                      offset += cell.nodeSize
+                    }
+                    offset += 1
+                  }
+                  ed.view.dispatch(tr)
                   break
                 }
               }

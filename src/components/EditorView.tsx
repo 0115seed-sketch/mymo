@@ -16,8 +16,119 @@ import { ActionButton } from '../extensions/ActionButton'
 import { DragHandle } from '../extensions/DragHandle'
 import { KeyboardShortcuts } from '../extensions/KeyboardShortcuts'
 import TextAlign from '@tiptap/extension-text-align'
+import { Extension } from '@tiptap/core'
+import { Plugin, PluginKey } from '@tiptap/pm/state'
 import Toolbar from './Toolbar'
 import { darkMode } from '../stores/settings'
+
+// ── 행 높이 드래그 리사이즈 플러그인 ──
+const rowResizePluginKey = new PluginKey('rowResize')
+
+const RowResize = Extension.create({
+  name: 'rowResize',
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: rowResizePluginKey,
+        props: {
+          handleDOMEvents: {
+            mousedown: (view, event) => {
+              const target = event.target as HTMLElement
+              if (!target.classList.contains('row-resize-handle')) return false
+
+              event.preventDefault()
+              const tr = target.closest('tr') as HTMLTableRowElement | null
+              if (!tr) return false
+
+              const startY = event.clientY
+              const startHeight = tr.offsetHeight
+
+              const onMouseMove = (e: MouseEvent) => {
+                const newHeight = Math.max(30, startHeight + (e.clientY - startY))
+                tr.style.height = `${newHeight}px`
+                const cells = tr.querySelectorAll('td, th')
+                cells.forEach(c => { (c as HTMLElement).style.height = `${newHeight}px` })
+              }
+
+              const onMouseUp = (e: MouseEvent) => {
+                document.removeEventListener('mousemove', onMouseMove)
+                document.removeEventListener('mouseup', onMouseUp)
+                document.body.style.cursor = ''
+
+                const finalHeight = Math.max(30, startHeight + (e.clientY - startY))
+
+                // ProseMirror 트랜잭션으로 rowHeight 설정 (Ctrl+Z 가능)
+                const { state } = view
+                const tableEl = tr.closest('table')
+                if (!tableEl) return
+
+                // 에디터 DOM에서 table 노드를 찾기
+                const editorDom = view.dom
+                const tables = editorDom.querySelectorAll('table')
+                let tableIndex = -1
+                tables.forEach((t, i) => { if (t === tableEl) tableIndex = i })
+                if (tableIndex === -1) return
+
+                // 문서에서 table 노드 위치 찾기
+                let tableCount = 0
+                let tablePos = -1
+                state.doc.descendants((node, pos) => {
+                  if (node.type.name === 'table') {
+                    if (tableCount === tableIndex) {
+                      tablePos = pos
+                    }
+                    tableCount++
+                  }
+                })
+                if (tablePos === -1) return
+
+                const tableNode = state.doc.nodeAt(tablePos)
+                if (!tableNode) return
+
+                // 해당 행의 인덱스 찾기
+                const rows = tr.parentElement?.querySelectorAll('tr')
+                if (!rows) return
+                let rowIndex = -1
+                rows.forEach((r, i) => { if (r === tr) rowIndex = i })
+                if (rowIndex === -1) return
+
+                // 트랜잭션 생성
+                const { tr: transaction } = state
+                let offset = 1 // table 시작 후 첫 행까지
+                for (let r = 0; r < tableNode.childCount; r++) {
+                  const row = tableNode.child(r)
+                  offset += 1 // tableRow 노드 시작
+                  if (r === rowIndex) {
+                    for (let c = 0; c < row.childCount; c++) {
+                      const cell = row.child(c)
+                      transaction.setNodeMarkup(tablePos + offset, undefined, {
+                        ...cell.attrs,
+                        rowHeight: finalHeight,
+                      })
+                      offset += cell.nodeSize
+                    }
+                  } else {
+                    for (let c = 0; c < row.childCount; c++) {
+                      offset += row.child(c).nodeSize
+                    }
+                  }
+                  offset += 1 // tableRow 노드 끝
+                }
+                view.dispatch(transaction)
+              }
+
+              document.body.style.cursor = 'row-resize'
+              document.addEventListener('mousemove', onMouseMove)
+              document.addEventListener('mouseup', onMouseUp)
+              return true
+            },
+          },
+        },
+      }),
+    ]
+  },
+})
 
 interface EditorViewProps {
   content: string
@@ -68,6 +179,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
         TextAlign.configure({
           types: ['heading', 'paragraph'],
         }),
+        RowResize,
       ],
       content: props.content ? JSON.parse(props.content) : undefined,
       onUpdate: ({ editor: e }) => {
@@ -82,6 +194,27 @@ const EditorView: Component<EditorViewProps> = (props) => {
       },
     })
     setEditor(ed)
+
+    // 테이블 셀에 row-resize-handle 자동 삽입
+    const addRowResizeHandles = () => {
+      const cells = editorElement.querySelectorAll('.tiptap table td, .tiptap table th')
+      cells.forEach(cell => {
+        if (!cell.querySelector('.row-resize-handle')) {
+          const handle = document.createElement('div')
+          handle.className = 'row-resize-handle'
+          cell.appendChild(handle)
+        }
+      })
+    }
+
+    // 초기 실행 + DOM 변경 감시
+    setTimeout(addRowResizeHandles, 100)
+    const observer = new MutationObserver(() => {
+      setTimeout(addRowResizeHandles, 50)
+    })
+    observer.observe(editorElement, { childList: true, subtree: true })
+
+    onCleanup(() => observer.disconnect())
   })
 
   // 페이지 변경 시에만 에디터 내용 교체 (content 변경은 무시 — 커서 리셋 방지)

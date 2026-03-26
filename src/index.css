@@ -275,6 +275,37 @@ body {
   cursor: col-resize;
 }
 
+/* Row resize handle — 행 하단에 드래그 핸들 */
+.editor-content .tiptap table td,
+.editor-content .tiptap table th {
+  position: relative;
+}
+
+.editor-content .tiptap table tr:last-child td::after,
+.editor-content .tiptap table tr:last-child th::after,
+.editor-content .tiptap table tr:not(:last-child) td:last-child::after,
+.editor-content .tiptap table tr:not(:last-child) th:last-child::after {
+  /* Only show on the last cell of each row for simplicity */
+}
+
+.editor-content .tiptap table td .row-resize-handle,
+.editor-content .tiptap table th .row-resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 4px;
+  cursor: row-resize;
+  z-index: 10;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.editor-content .tiptap table td .row-resize-handle:hover,
+.editor-content .tiptap table th .row-resize-handle:hover {
+  background-color: var(--accent);
+}
+
 /* Task list styles */
 .editor-content .tiptap ul[data-type="taskList"] {
   list-style: none;
