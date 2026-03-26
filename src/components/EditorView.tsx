@@ -40,36 +40,110 @@ function findTablePos(view: any, tableEl: HTMLElement): number {
   return found
 }
 
-// ── 행 높이 드래그 리사이즈 플러그인 ──
-const RowResize = Extension.create({
-  name: 'rowResize',
+const EDGE_THRESHOLD = 6 // px from cell edge to trigger resize
+
+// ── 테이블 리사이즈 플러그인 (행 높이 + 열 너비, 셀 경계 감지 방식) ──
+const TableResize = Extension.create({
+  name: 'tableResize',
 
   addProseMirrorPlugins() {
+    let resizing: {
+      type: 'row' | 'col'
+      tableEl: HTMLTableElement
+      tr?: HTMLTableRowElement
+      cell?: HTMLElement
+      nextCell?: HTMLElement | null
+      startPos: number
+      startSize: number
+      nextStartSize: number
+    } | null = null
+
     return [
       new Plugin({
-        key: new PluginKey('rowResize'),
+        key: new PluginKey('tableResize'),
         props: {
           handleDOMEvents: {
+            mousemove: (_view, event) => {
+              if (resizing) return false
+              const target = event.target as HTMLElement
+              const cell = target.closest('td, th') as HTMLElement | null
+              if (!cell) {
+                document.body.style.cursor = ''
+                return false
+              }
+
+              const rect = cell.getBoundingClientRect()
+              const nearBottom = event.clientY > rect.bottom - EDGE_THRESHOLD
+              const nearRight = event.clientX > rect.right - EDGE_THRESHOLD
+
+              if (nearBottom) {
+                document.body.style.cursor = 'row-resize'
+              } else if (nearRight) {
+                document.body.style.cursor = 'col-resize'
+              } else {
+                document.body.style.cursor = ''
+              }
+              return false
+            },
+
             mousedown: (view, event) => {
               const target = event.target as HTMLElement
-              if (!target.classList.contains('row-resize-handle')) return false
+              const cell = target.closest('td, th') as HTMLElement | null
+              if (!cell) return false
+
+              const rect = cell.getBoundingClientRect()
+              const nearBottom = event.clientY > rect.bottom - EDGE_THRESHOLD
+              const nearRight = event.clientX > rect.right - EDGE_THRESHOLD
+
+              if (!nearBottom && !nearRight) return false
 
               event.preventDefault()
               event.stopPropagation()
-              const cell = target.closest('td, th') as HTMLElement | null
-              const tr = cell?.closest('tr') as HTMLTableRowElement | null
-              const tableEl = tr?.closest('table') as HTMLTableElement | null
-              if (!tr || !tableEl) return false
 
-              const startY = event.clientY
-              const startHeight = tr.offsetHeight
+              const tableEl = cell.closest('table') as HTMLTableElement | null
+              if (!tableEl) return false
+
+              if (nearBottom) {
+                // 행 높이 리사이즈
+                const tr = cell.closest('tr') as HTMLTableRowElement
+                resizing = {
+                  type: 'row',
+                  tableEl,
+                  tr,
+                  startPos: event.clientY,
+                  startSize: tr.offsetHeight,
+                  nextStartSize: 0,
+                }
+              } else {
+                // 열 너비 리사이즈
+                const nextCell = cell.nextElementSibling as HTMLElement | null
+                resizing = {
+                  type: 'col',
+                  tableEl,
+                  cell,
+                  nextCell,
+                  startPos: event.clientX,
+                  startSize: cell.offsetWidth,
+                  nextStartSize: nextCell ? nextCell.offsetWidth : 0,
+                }
+              }
 
               const onMouseMove = (e: MouseEvent) => {
-                const delta = e.clientY - startY
-                const newHeight = Math.max(30, startHeight + delta)
-                tr.style.height = `${newHeight}px`
-                const cells = tr.querySelectorAll('td, th')
-                cells.forEach(c => { (c as HTMLElement).style.height = `${newHeight}px` })
+                if (!resizing) return
+                if (resizing.type === 'row') {
+                  const newHeight = Math.max(30, resizing.startSize + (e.clientY - resizing.startPos))
+                  resizing.tr!.style.height = `${newHeight}px`
+                  const cells = resizing.tr!.querySelectorAll('td, th')
+                  cells.forEach(c => { (c as HTMLElement).style.height = `${newHeight}px` })
+                } else {
+                  const delta = e.clientX - resizing.startPos
+                  const newWidth = Math.max(50, resizing.startSize + delta)
+                  resizing.cell!.style.width = `${newWidth}px`
+                  if (resizing.nextCell) {
+                    const nextWidth = Math.max(50, resizing.nextStartSize - delta)
+                    resizing.nextCell.style.width = `${nextWidth}px`
+                  }
+                }
               }
 
               const onMouseUp = (e: MouseEvent) => {
@@ -78,149 +152,93 @@ const RowResize = Extension.create({
                 document.body.style.cursor = ''
                 document.body.style.userSelect = ''
 
-                const finalHeight = Math.max(30, startHeight + (e.clientY - startY))
-                const tablePos = findTablePos(view, tableEl)
-                if (tablePos === -1) return
+                if (!resizing) return
+
+                const tablePos = findTablePos(view, resizing.tableEl)
+                if (tablePos === -1) { resizing = null; return }
 
                 const tableNode = view.state.doc.nodeAt(tablePos)
-                if (!tableNode) return
+                if (!tableNode) { resizing = null; return }
 
-                // 행 인덱스 찾기
-                const allRows = tableEl.querySelectorAll(':scope > thead > tr, :scope > tbody > tr, :scope > tr')
-                let rowIndex = -1
-                allRows.forEach((r, i) => { if (r === tr) rowIndex = i })
-                if (rowIndex === -1) return
-
-                // 단일 트랜잭션으로 해당 행의 모든 셀에 rowHeight 설정
                 const { tr: transaction } = view.state
-                let offset = 1
-                for (let r = 0; r < tableNode.childCount; r++) {
-                  const row = tableNode.child(r)
-                  offset += 1
-                  if (r === rowIndex) {
+
+                if (resizing.type === 'row') {
+                  const finalHeight = Math.max(30, resizing.startSize + (e.clientY - resizing.startPos))
+
+                  // 행 인덱스 찾기
+                  const allRows = resizing.tableEl.querySelectorAll(':scope > thead > tr, :scope > tbody > tr, :scope > tr')
+                  let rowIndex = -1
+                  allRows.forEach((r, i) => { if (r === resizing!.tr) rowIndex = i })
+                  if (rowIndex === -1) { resizing = null; return }
+
+                  let offset = 1
+                  for (let r = 0; r < tableNode.childCount; r++) {
+                    const row = tableNode.child(r)
+                    offset += 1
+                    if (r === rowIndex) {
+                      for (let c = 0; c < row.childCount; c++) {
+                        const cellNode = row.child(c)
+                        transaction.setNodeMarkup(tablePos + offset, undefined, {
+                          ...cellNode.attrs,
+                          rowHeight: finalHeight,
+                        })
+                        offset += cellNode.nodeSize
+                      }
+                    } else {
+                      for (let c = 0; c < row.childCount; c++) {
+                        offset += row.child(c).nodeSize
+                      }
+                    }
+                    offset += 1
+                  }
+                } else {
+                  const delta = e.clientX - resizing.startPos
+                  const newWidth = Math.max(50, resizing.startSize + delta)
+                  const nextWidth = resizing.nextCell ? Math.max(50, resizing.nextStartSize - delta) : 0
+
+                  // 열 인덱스 찾기
+                  const tr = resizing.cell!.closest('tr')!
+                  const cellsInRow = tr.querySelectorAll('td, th')
+                  let colIndex = -1
+                  cellsInRow.forEach((c, i) => { if (c === resizing!.cell) colIndex = i })
+                  if (colIndex === -1) { resizing = null; return }
+
+                  let offset = 1
+                  for (let r = 0; r < tableNode.childCount; r++) {
+                    const row = tableNode.child(r)
+                    offset += 1
                     for (let c = 0; c < row.childCount; c++) {
                       const cellNode = row.child(c)
-                      transaction.setNodeMarkup(tablePos + offset, undefined, {
-                        ...cellNode.attrs,
-                        rowHeight: finalHeight,
-                      })
+                      if (c === colIndex) {
+                        transaction.setNodeMarkup(tablePos + offset, undefined, {
+                          ...cellNode.attrs,
+                          colwidth: [newWidth],
+                        })
+                      } else if (c === colIndex + 1 && resizing.nextCell) {
+                        transaction.setNodeMarkup(tablePos + offset, undefined, {
+                          ...cellNode.attrs,
+                          colwidth: [nextWidth],
+                        })
+                      }
                       offset += cellNode.nodeSize
                     }
-                  } else {
-                    for (let c = 0; c < row.childCount; c++) {
-                      offset += row.child(c).nodeSize
-                    }
+                    offset += 1
                   }
-                  offset += 1
                 }
+
                 view.dispatch(transaction)
+                resizing = null
               }
 
-              document.body.style.cursor = 'row-resize'
               document.body.style.userSelect = 'none'
               document.addEventListener('mousemove', onMouseMove)
               document.addEventListener('mouseup', onMouseUp)
               return true
             },
-          },
-        },
-      }),
-    ]
-  },
-})
 
-// ── 열 너비 드래그 리사이즈 플러그인 (Ctrl+Z 지원) ──
-const ColResize = Extension.create({
-  name: 'colResize',
-
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: new PluginKey('colResize'),
-        props: {
-          handleDOMEvents: {
-            mousedown: (view, event) => {
-              const target = event.target as HTMLElement
-              if (!target.classList.contains('col-resize-handle')) return false
-
-              event.preventDefault()
-              event.stopPropagation()
-              const cell = target.closest('td, th') as HTMLElement | null
-              const tableEl = cell?.closest('table') as HTMLTableElement | null
-              if (!cell || !tableEl) return false
-
-              const startX = event.clientX
-              const startWidth = cell.offsetWidth
-
-              // 오른쪽 이웃 셀 찾기
-              const nextCell = cell.nextElementSibling as HTMLElement | null
-              const nextStartWidth = nextCell ? nextCell.offsetWidth : 0
-
-              const onMouseMove = (e: MouseEvent) => {
-                const delta = e.clientX - startX
-                const newWidth = Math.max(50, startWidth + delta)
-                cell.style.width = `${newWidth}px`
-                if (nextCell) {
-                  const nextWidth = Math.max(50, nextStartWidth - delta)
-                  nextCell.style.width = `${nextWidth}px`
-                }
-              }
-
-              const onMouseUp = (e: MouseEvent) => {
-                document.removeEventListener('mousemove', onMouseMove)
-                document.removeEventListener('mouseup', onMouseUp)
-                document.body.style.cursor = ''
-                document.body.style.userSelect = ''
-
-                const delta = e.clientX - startX
-                const newWidth = Math.max(50, startWidth + delta)
-                const nextWidth = nextCell ? Math.max(50, nextStartWidth - delta) : 0
-
-                const tablePos = findTablePos(view, tableEl)
-                if (tablePos === -1) return
-
-                const tableNode = view.state.doc.nodeAt(tablePos)
-                if (!tableNode) return
-
-                // 현재 셀의 열 인덱스 찾기
-                const tr = cell.closest('tr')
-                if (!tr) return
-                const cellsInRow = tr.querySelectorAll('td, th')
-                let colIndex = -1
-                cellsInRow.forEach((c, i) => { if (c === cell) colIndex = i })
-                if (colIndex === -1) return
-
-                // 단일 트랜잭션: 모든 행에서 해당 열(+옆 열)의 colwidth 업데이트
-                const { tr: transaction } = view.state
-                let offset = 1
-                for (let r = 0; r < tableNode.childCount; r++) {
-                  const row = tableNode.child(r)
-                  offset += 1
-                  for (let c = 0; c < row.childCount; c++) {
-                    const cellNode = row.child(c)
-                    if (c === colIndex) {
-                      transaction.setNodeMarkup(tablePos + offset, undefined, {
-                        ...cellNode.attrs,
-                        colwidth: [newWidth],
-                      })
-                    } else if (c === colIndex + 1 && nextCell) {
-                      transaction.setNodeMarkup(tablePos + offset, undefined, {
-                        ...cellNode.attrs,
-                        colwidth: [nextWidth],
-                      })
-                    }
-                    offset += cellNode.nodeSize
-                  }
-                  offset += 1
-                }
-                view.dispatch(transaction)
-              }
-
-              document.body.style.cursor = 'col-resize'
-              document.body.style.userSelect = 'none'
-              document.addEventListener('mousemove', onMouseMove)
-              document.addEventListener('mouseup', onMouseUp)
-              return true
+            mouseleave: () => {
+              if (!resizing) document.body.style.cursor = ''
+              return false
             },
           },
         },
@@ -278,8 +296,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
         TextAlign.configure({
           types: ['heading', 'paragraph'],
         }),
-        RowResize,
-        ColResize,
+        TableResize,
       ],
       content: props.content ? JSON.parse(props.content) : undefined,
       onUpdate: ({ editor: e }) => {
@@ -294,34 +311,6 @@ const EditorView: Component<EditorViewProps> = (props) => {
       },
     })
     setEditor(ed)
-
-    // 테이블 셀에 리사이즈 핸들 자동 삽입
-    const addResizeHandles = () => {
-      const cells = editorElement.querySelectorAll('.tiptap table td, .tiptap table th')
-      cells.forEach(cell => {
-        // 행 높이 핸들 (하단)
-        if (!cell.querySelector('.row-resize-handle')) {
-          const handle = document.createElement('div')
-          handle.className = 'row-resize-handle'
-          cell.appendChild(handle)
-        }
-        // 열 너비 핸들 (우측)
-        if (!cell.querySelector('.col-resize-handle')) {
-          const handle = document.createElement('div')
-          handle.className = 'col-resize-handle'
-          cell.appendChild(handle)
-        }
-      })
-    }
-
-    // 초기 실행 + DOM 변경 감시
-    setTimeout(addResizeHandles, 100)
-    const observer = new MutationObserver(() => {
-      requestAnimationFrame(addResizeHandles)
-    })
-    observer.observe(editorElement, { childList: true, subtree: true })
-
-    onCleanup(() => observer.disconnect())
   })
 
   // 페이지 변경 시에만 에디터 내용 교체 (content 변경은 무시 — 커서 리셋 방지)

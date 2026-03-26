@@ -191,7 +191,9 @@ export function createPageStore() {
 
     const reordered = [...siblings]
     const [moved] = reordered.splice(oldIndex, 1)
-    reordered.splice(newIndex, 0, moved)
+    // splice 후 배열이 짧아지므로, 원래 인덱스보다 뒤로 이동할 때 1을 빼야 함
+    const adjustedIndex = oldIndex < newIndex ? newIndex - 1 : newIndex
+    reordered.splice(adjustedIndex, 0, moved)
 
     const uid = user()?.uid
     for (let i = 0; i < reordered.length; i++) {

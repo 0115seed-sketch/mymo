@@ -55,7 +55,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
   }
 
   const groupBtnClass = (open: boolean) =>
-    `btn font-medium ${open ? (darkMode() ? 'bg-gray-700' : 'bg-gray-200') : ''}`
+    `btn font-medium ${open ? (darkMode() ? '!bg-[#3d3f5c] !text-white' : '!bg-gray-200') : ''}`
 
   return (
     <Show when={props.editor}>
