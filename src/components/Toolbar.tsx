@@ -257,153 +257,135 @@ const Toolbar: Component<ToolbarProps> = (props) => {
             <button class="btn" onClick={() => {
               const ed = props.editor!
               const { state } = ed
+              const sel = state.selection as any
+              if (!sel.$anchorCell) return
               const { $from } = state.selection
+              let tableNode: any = null, tableStart = 0
               for (let d = $from.depth; d >= 0; d--) {
-                const node = $from.node(d)
-                if (node.type.name === 'table') {
-                  const tableStart = $from.start(d) - 1
-                  const tableDom = ed.view.nodeDOM(tableStart) as HTMLElement | null
-                  const tableWrapper = tableDom?.closest('.tableWrapper') as HTMLElement | null
-                  const tableEl = tableWrapper?.querySelector('table') || tableDom
-                  const tableWidth = tableEl?.getBoundingClientRect().width || 600
-
-                  // 선택된 열 인덱스 구하기 (CellSelection이면 선택된 셀의 열만)
-                  const sel = state.selection as any
-                  const selectedColIndices = new Set<number>()
-
-                  if (sel.$anchorCell && sel.ranges) {
-                    let offset = tableStart + 1
-                    for (let r = 0; r < node.childCount; r++) {
-                      const row = node.child(r)
-                      offset += 1
-                      for (let c = 0; c < row.childCount; c++) {
-                        const cellNode = row.child(c)
-                        const cellStart = offset
-                        for (const range of sel.ranges) {
-                          if (range.$from.pos >= cellStart && range.$from.pos < cellStart + cellNode.nodeSize) {
-                            selectedColIndices.add(c)
-                            break
-                          }
-                        }
-                        offset += cellNode.nodeSize
-                      }
-                      offset += 1
-                    }
-                  } else {
-                    // 일반 커서: 전체 열
-                    const firstRow = node.child(0)
-                    for (let c = 0; c < firstRow.childCount; c++) selectedColIndices.add(c)
-                  }
-
-                  if (selectedColIndices.size === 0) break
-
-                  // 선택된 열들의 총 너비를 구해 균등 분배
-                  const firstRowCells = (tableEl as HTMLElement).querySelectorAll(':scope > thead > tr:first-child > td, :scope > thead > tr:first-child > th, :scope > tbody > tr:first-child > td, :scope > tbody > tr:first-child > th, :scope > tr:first-child > td, :scope > tr:first-child > th')
-                  let totalSelectedWidth = 0
-                  selectedColIndices.forEach(c => {
-                    const cellEl = firstRowCells[c]
-                    if (cellEl) totalSelectedWidth += (cellEl as HTMLElement).offsetWidth
-                  })
-                  const equalWidth = Math.round(totalSelectedWidth / selectedColIndices.size)
-
-                  const { tr } = state
-                  let offset = 1
-                  for (let r = 0; r < node.childCount; r++) {
-                    const row = node.child(r)
-                    offset += 1
-                    for (let c = 0; c < row.childCount; c++) {
-                      const cell = row.child(c)
-                      if (selectedColIndices.has(c)) {
-                        tr.setNodeMarkup(tableStart + offset, undefined, {
-                          ...cell.attrs,
-                          colwidth: [equalWidth],
-                        })
-                      }
-                      offset += cell.nodeSize
-                    }
-                    offset += 1
-                  }
-                  ed.view.dispatch(tr)
+                if ($from.node(d).type.name === 'table') {
+                  tableNode = $from.node(d)
+                  tableStart = $from.start(d) - 1
                   break
                 }
               }
+              if (!tableNode) return
+
+              // $anchorCell.pos, $headCell.pos로 선택된 열 범위 결정
+              const anchorPos = sel.$anchorCell.pos
+              const headPos = sel.$headCell.pos
+              let anchorCol = -1, headCol = -1
+              let off = tableStart + 1
+              for (let r = 0; r < tableNode.childCount; r++) {
+                const row = tableNode.child(r)
+                off += 1
+                for (let c = 0; c < row.childCount; c++) {
+                  if (off === anchorPos) anchorCol = c
+                  if (off === headPos) headCol = c
+                  off += row.child(c).nodeSize
+                }
+                off += 1
+              }
+              if (anchorCol < 0 || headCol < 0) return
+              const minCol = Math.min(anchorCol, headCol)
+              const maxCol = Math.max(anchorCol, headCol)
+              const numCols = maxCol - minCol + 1
+
+              // 첫 번째 행 DOM에서 선택된 열들의 너비 합산
+              let totalWidth = 0
+              off = tableStart + 1 + 1 // 첫 번째 행 진입 (첫 번째 셀 위치)
+              const firstRow = tableNode.child(0)
+              for (let c = 0; c < firstRow.childCount; c++) {
+                if (c >= minCol && c <= maxCol) {
+                  const dom = ed.view.nodeDOM(off) as HTMLElement | null
+                  if (dom) totalWidth += dom.offsetWidth
+                }
+                off += firstRow.child(c).nodeSize
+              }
+              if (totalWidth === 0) return
+              const equalW = Math.round(totalWidth / numCols)
+
+              // 모든 행의 해당 열에 colwidth 적용
+              const { tr } = state
+              off = tableStart + 1
+              for (let r = 0; r < tableNode.childCount; r++) {
+                const row = tableNode.child(r)
+                off += 1
+                for (let c = 0; c < row.childCount; c++) {
+                  const cell = row.child(c)
+                  if (c >= minCol && c <= maxCol) {
+                    tr.setNodeMarkup(off, undefined, { ...cell.attrs, colwidth: [equalW] })
+                  }
+                  off += cell.nodeSize
+                }
+                off += 1
+              }
+              ed.view.dispatch(tr)
             }} title="셀 너비 같게">⇔너비</button>
             <button class="btn" onClick={() => {
               const ed = props.editor!
               const { state } = ed
+              const sel = state.selection as any
+              if (!sel.$anchorCell) return
               const { $from } = state.selection
+              let tableNode: any = null, tableStart = 0
               for (let d = $from.depth; d >= 0; d--) {
-                const node = $from.node(d)
-                if (node.type.name === 'table') {
-                  const tableStart = $from.start(d) - 1
-                  const tableDom = ed.view.nodeDOM(tableStart) as HTMLElement | null
-                  const tableEl = tableDom?.querySelector('table') || tableDom?.closest('table') || tableDom
-                  if (!tableEl) break
-
-                  // 선택된 행 인덱스를 구함 (CellSelection이면 선택된 셀의 행만, 아니면 전체)
-                  const sel = state.selection as any
-                  const selectedRowIndices = new Set<number>()
-
-                  if (sel.$anchorCell && sel.ranges) {
-                    // CellSelection: 선택된 셀이 속한 행만
-                    let offset = tableStart + 1
-                    for (let r = 0; r < node.childCount; r++) {
-                      const row = node.child(r)
-                      offset += 1
-                      for (let c = 0; c < row.childCount; c++) {
-                        const cellNode = row.child(c)
-                        const cellStart = offset
-                        for (const range of sel.ranges) {
-                          if (range.$from.pos >= cellStart && range.$from.pos < cellStart + cellNode.nodeSize) {
-                            selectedRowIndices.add(r)
-                            break
-                          }
-                        }
-                        offset += cellNode.nodeSize
-                      }
-                      offset += 1
-                    }
-                  } else {
-                    // 일반 커서: 전체 행
-                    for (let r = 0; r < node.childCount; r++) selectedRowIndices.add(r)
-                  }
-
-                  if (selectedRowIndices.size === 0) break
-
-                  // 선택된 행들의 총 높이를 구해서 균등 분배
-                  const rowEls = (tableEl as HTMLElement).querySelectorAll(':scope > thead > tr, :scope > tbody > tr, :scope > tr')
-                  let totalSelectedHeight = 0
-                  selectedRowIndices.forEach(r => {
-                    const rowEl = rowEls[r]
-                    if (rowEl) totalSelectedHeight += (rowEl as HTMLElement).offsetHeight
-                  })
-                  const equalHeight = Math.round(totalSelectedHeight / selectedRowIndices.size)
-
-                  const { tr } = state
-                  let offset = 1
-                  for (let r = 0; r < node.childCount; r++) {
-                    const row = node.child(r)
-                    offset += 1
-                    if (selectedRowIndices.has(r)) {
-                      for (let c = 0; c < row.childCount; c++) {
-                        const cell = row.child(c)
-                        tr.setNodeMarkup(tableStart + offset, undefined, {
-                          ...cell.attrs,
-                          rowHeight: equalHeight,
-                        })
-                        offset += cell.nodeSize
-                      }
-                    } else {
-                      for (let c = 0; c < row.childCount; c++) {
-                        offset += row.child(c).nodeSize
-                      }
-                    }
-                    offset += 1
-                  }
-                  ed.view.dispatch(tr)
+                if ($from.node(d).type.name === 'table') {
+                  tableNode = $from.node(d)
+                  tableStart = $from.start(d) - 1
                   break
                 }
               }
+              if (!tableNode) return
+
+              // $anchorCell.pos, $headCell.pos로 선택된 행 범위 결정
+              const anchorPos = sel.$anchorCell.pos
+              const headPos = sel.$headCell.pos
+              let anchorRow = -1, headRow = -1
+              let off = tableStart + 1
+              for (let r = 0; r < tableNode.childCount; r++) {
+                const row = tableNode.child(r)
+                off += 1
+                for (let c = 0; c < row.childCount; c++) {
+                  if (off === anchorPos) anchorRow = r
+                  if (off === headPos) headRow = r
+                  off += row.child(c).nodeSize
+                }
+                off += 1
+              }
+              if (anchorRow < 0 || headRow < 0) return
+              const minRow = Math.min(anchorRow, headRow)
+              const maxRow = Math.max(anchorRow, headRow)
+              const numRows = maxRow - minRow + 1
+
+              // 선택된 행들의 DOM 높이 합산
+              let totalHeight = 0
+              off = tableStart + 1
+              for (let r = 0; r < tableNode.childCount; r++) {
+                if (r >= minRow && r <= maxRow) {
+                  const dom = ed.view.nodeDOM(off) as HTMLElement | null
+                  if (dom) totalHeight += dom.offsetHeight
+                }
+                off += tableNode.child(r).nodeSize
+              }
+              if (totalHeight === 0) return
+              const equalH = Math.round(totalHeight / numRows)
+
+              // 선택된 행의 모든 셀에 rowHeight 적용
+              const { tr } = state
+              off = tableStart + 1
+              for (let r = 0; r < tableNode.childCount; r++) {
+                const row = tableNode.child(r)
+                off += 1
+                for (let c = 0; c < row.childCount; c++) {
+                  const cell = row.child(c)
+                  if (r >= minRow && r <= maxRow) {
+                    tr.setNodeMarkup(off, undefined, { ...cell.attrs, rowHeight: equalH })
+                  }
+                  off += cell.nodeSize
+                }
+                off += 1
+              }
+              ed.view.dispatch(tr)
             }} title="셀 높이 같게">⇕높이</button>
           </>}
 
