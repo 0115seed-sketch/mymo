@@ -18,7 +18,7 @@ export function createPageStore() {
 
   // --- Load ---
   const loadPages = async () => {
-    const all = await db.pages.orderBy('updatedAt').reverse().toArray()
+    const all = await db.pages.orderBy('order').toArray()
     setPages(all)
     // Auto-select first non-deleted page if current is gone
     const current = currentPageId()
@@ -40,14 +40,19 @@ export function createPageStore() {
   // --- Derived ---
   const activePages = () => pages().filter(p => !p.deleted)
   const trashedPages = () => pages().filter(p => p.deleted)
-  const rootPages = () => activePages().filter(p => !p.folderId && !p.parentPageId)
-  const pagesInFolder = (folderId: string) => activePages().filter(p => p.folderId === folderId && !p.parentPageId)
-  const subPages = (parentPageId: string) => activePages().filter(p => p.parentPageId === parentPageId)
+  const rootPages = () => activePages().filter(p => !p.folderId && !p.parentPageId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  const pagesInFolder = (folderId: string) => activePages().filter(p => p.folderId === folderId && !p.parentPageId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  const subPages = (parentPageId: string) => activePages().filter(p => p.parentPageId === parentPageId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
   const currentPage = () => pages().find(p => p.id === currentPageId()) ?? null
 
   // --- Page CRUD ---
   const createPage = async (title = '새 페이지', folderId: string | null = null, parentPageId: string | null = null) => {
     const now = Date.now()
+    // new pages go to order 0 (top), push existing ones down
+    const siblings = pages().filter(p => !p.deleted && p.folderId === folderId && p.parentPageId === parentPageId)
+    for (const s of siblings) {
+      await db.pages.update(s.id, { order: (s.order ?? 0) + 1 })
+    }
     const page: Page = {
       id: generateId(),
       title,
@@ -55,6 +60,7 @@ export function createPageStore() {
       folderId,
       parentPageId,
       deleted: false,
+      order: 0,
       createdAt: now,
       updatedAt: now,
     }
@@ -173,6 +179,44 @@ export function createPageStore() {
     }
   }
 
+  // --- Reorder pages ---
+  const reorderPage = async (pageId: string, newIndex: number, folderId: string | null) => {
+    // Get sorted siblings (same folder & not deleted)
+    const siblings = activePages()
+      .filter(p => p.folderId === folderId && !p.parentPageId)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+
+    const oldIndex = siblings.findIndex(p => p.id === pageId)
+    if (oldIndex === -1 || oldIndex === newIndex) return
+
+    const reordered = [...siblings]
+    const [moved] = reordered.splice(oldIndex, 1)
+    reordered.splice(newIndex, 0, moved)
+
+    const uid = user()?.uid
+    for (let i = 0; i < reordered.length; i++) {
+      await db.pages.update(reordered[i].id, { order: i })
+      if (uid) {
+        const page = await db.pages.get(reordered[i].id)
+        if (page) syncPageToCloud(uid, page)
+      }
+    }
+    await loadPages()
+  }
+
+  // Move page to folder (with order placement at end)
+  const movePageToFolder = async (pageId: string, folderId: string | null) => {
+    const siblings = activePages().filter(p => p.folderId === folderId && !p.parentPageId)
+    const maxOrder = siblings.length > 0 ? Math.max(...siblings.map(p => p.order ?? 0)) + 1 : 0
+    await db.pages.update(pageId, { folderId, order: maxOrder, updatedAt: Date.now() })
+    await loadPages()
+    const uid = user()?.uid
+    if (uid) {
+      const page = await db.pages.get(pageId)
+      if (page) syncPageToCloud(uid, page)
+    }
+  }
+
   return {
     pages,
     folders,
@@ -197,5 +241,7 @@ export function createPageStore() {
     createFolder,
     renameFolder,
     deleteFolder,
+    reorderPage,
+    movePageToFolder,
   }
 }

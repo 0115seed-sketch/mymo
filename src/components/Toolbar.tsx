@@ -40,8 +40,9 @@ const Toolbar: Component<ToolbarProps> = (props) => {
   const [showTextColor, setShowTextColor] = createSignal(false)
   const [showBgColor, setShowBgColor] = createSignal(false)
   const [showCellColor, setShowCellColor] = createSignal(false)
-  const [collapsed, setCollapsed] = createSignal(false)
   const [showExport, setShowExport] = createSignal(false)
+  const [showTextGroup, setShowTextGroup] = createSignal(false)
+  const [showInsertGroup, setShowInsertGroup] = createSignal(false)
 
   const isActive = (name: string, attrs?: Record<string, unknown>) => {
     void props.version
@@ -53,159 +54,79 @@ const Toolbar: Component<ToolbarProps> = (props) => {
     return !!props.editor?.isActive('table')
   }
 
+  const groupBtnClass = (open: boolean) =>
+    `btn font-medium ${open ? (darkMode() ? 'bg-gray-700' : 'bg-gray-200') : ''}`
+
   return (
     <Show when={props.editor}>
       <div class={`flex items-center gap-0.5 px-3 py-1.5 border-b flex-wrap ${darkMode() ? 'border-gray-700 bg-[#1a1b2e]' : 'border-gray-200 bg-white'}`}>
-        <button class="btn text-xs mr-1" onClick={() => setCollapsed(!collapsed())} title={collapsed() ? '툴바 펼치기' : '툴바 접기'}>
-          {collapsed() ? '▶ 툴바' : '▼'}
-        </button>
-        <Show when={!collapsed()}>
-        {/* Headings */}
-        <button class={isActive('heading', { level: 1 })} onClick={() => props.editor!.chain().focus().toggleHeading({ level: 1 }).run()}>
-          H1
-        </button>
-        <button class={isActive('heading', { level: 2 })} onClick={() => props.editor!.chain().focus().toggleHeading({ level: 2 }).run()}>
-          H2
-        </button>
-        <button class={isActive('heading', { level: 3 })} onClick={() => props.editor!.chain().focus().toggleHeading({ level: 3 }).run()}>
-          H3
+
+        {/* ── 글자 설정 ── */}
+        <button class={groupBtnClass(showTextGroup())} onClick={() => { setShowTextGroup(!showTextGroup()); setShowInsertGroup(false) }}>
+          {showTextGroup() ? '▼' : '▶'} 글자 설정
         </button>
 
-        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
-
-        {/* Text formatting */}
-        <button class={isActive('bold')} onClick={() => props.editor!.chain().focus().toggleBold().run()}>
-          <strong>B</strong>
-        </button>
-        <button class={isActive('italic')} onClick={() => props.editor!.chain().focus().toggleItalic().run()}>
-          <em>I</em>
-        </button>
-        <button class={isActive('underline')} onClick={() => props.editor!.chain().focus().toggleUnderline().run()}>
-          <u>U</u>
-        </button>
-        <button class={isActive('strike')} onClick={() => props.editor!.chain().focus().toggleStrike().run()}>
-          <s>S</s>
-        </button>
-        <button class={isActive('highlight')} onClick={() => props.editor!.chain().focus().toggleHighlight().run()}>
-          <span class="bg-yellow-200 px-0.5">H</span>
-        </button>
-
-        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
-
-        {/* Text color */}
-        <div class="relative">
-          <button class="btn" onClick={() => { setShowTextColor(!showTextColor()); setShowBgColor(false) }}>
-            <span style={`color: ${props.editor?.getAttributes('textStyle').color || '#000'}`}>●</span> 글자색
+        <Show when={showTextGroup()}>
+          {/* Headings */}
+          <button class={isActive('heading', { level: 1 })} onClick={() => props.editor!.chain().focus().toggleHeading({ level: 1 }).run()}>
+            H1
           </button>
-          <Show when={showTextColor()}>
-            <div class="color-dropdown">
-              <For each={TEXT_COLORS}>
-                {(c) => (
-                  <button
-                    class="color-dropdown-item"
-                    onClick={() => { props.editor!.chain().focus().setColor(c.color).run(); setShowTextColor(false) }}
-                  >
-                    <span class="color-dot" style={`background:${c.color};${c.border ? 'border:1px solid #d1d5db;' : ''}`} />
-                    <span>{c.name}</span>
-                  </button>
-                )}
-              </For>
-            </div>
-          </Show>
-        </div>
-
-        {/* Background color */}
-        <div class="relative">
-          <button class="btn" onClick={() => { setShowBgColor(!showBgColor()); setShowTextColor(false) }}>
-            <span class="px-0.5" style={`background: ${props.editor?.getAttributes('highlight').color || '#fef08a'}`}>A</span> 배경색
+          <button class={isActive('heading', { level: 2 })} onClick={() => props.editor!.chain().focus().toggleHeading({ level: 2 }).run()}>
+            H2
           </button>
-          <Show when={showBgColor()}>
-            <div class="color-dropdown">
-              <For each={BG_COLORS}>
-                {(c) => (
-                  <button
-                    class="color-dropdown-item"
-                    onClick={() => {
-                      if (c.color === '') {
-                        props.editor!.chain().focus().unsetHighlight().run()
-                      } else {
-                        props.editor!.chain().focus().toggleHighlight({ color: c.color }).run()
-                      }
-                      setShowBgColor(false)
-                    }}
-                  >
-                    <span class="color-dot" style={c.color === '' ? 'background:white;border:1px dashed #d1d5db;' : `background:${c.color};${c.border ? 'border:1px solid #d1d5db;' : ''}`} />
-                    <span>{c.name}</span>
-                  </button>
-                )}
-              </For>
-            </div>
-          </Show>
-        </div>
+          <button class={isActive('heading', { level: 3 })} onClick={() => props.editor!.chain().focus().toggleHeading({ level: 3 }).run()}>
+            H3
+          </button>
 
-        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
+          <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
 
-        {/* Lists */}
-        <button class={isActive('taskList')} onClick={() => props.editor!.chain().focus().toggleTaskList().run()}>
-          ☑ 할일
-        </button>
+          {/* Text formatting */}
+          <button class={isActive('bold')} onClick={() => props.editor!.chain().focus().toggleBold().run()}>
+            <strong>B</strong>
+          </button>
+          <button class={isActive('italic')} onClick={() => props.editor!.chain().focus().toggleItalic().run()}>
+            <em>I</em>
+          </button>
+          <button class={isActive('underline')} onClick={() => props.editor!.chain().focus().toggleUnderline().run()}>
+            <u>U</u>
+          </button>
+          <button class={isActive('strike')} onClick={() => props.editor!.chain().focus().toggleStrike().run()}>
+            <s>S</s>
+          </button>
+          <button class={isActive('highlight')} onClick={() => props.editor!.chain().focus().toggleHighlight().run()}>
+            <span class="bg-yellow-200 px-0.5">H</span>
+          </button>
 
-        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
+          <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
 
-        {/* Link */}
-        <button
-          class={isActive('link')}
-          onClick={() => {
-            if (props.editor!.isActive('link')) {
-              props.editor!.chain().focus().unsetLink().run()
-            } else {
-              const url = window.prompt('URL을 입력하세요:')
-              if (url) {
-                props.editor!.chain().focus().setLink({ href: url }).run()
-              }
-            }
-          }}
-        >
-          🔗 링크
-        </button>
-
-        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
-
-        {/* Text alignment */}
-        <button class={isActive('paragraph', { textAlign: 'left' }) === 'btn btn-active' || (!props.editor?.isActive({ textAlign: 'center' }) && !props.editor?.isActive({ textAlign: 'right' })) ? 'btn btn-active' : 'btn'} onClick={() => props.editor!.chain().focus().setTextAlign('left').run()} title="왼쪽 정렬">
-          ◧
-        </button>
-        <button class={props.editor?.isActive({ textAlign: 'center' }) ? 'btn btn-active' : 'btn'} onClick={() => props.editor!.chain().focus().setTextAlign('center').run()} title="중앙 정렬">
-          ◫
-        </button>
-        <button class={props.editor?.isActive({ textAlign: 'right' }) ? 'btn btn-active' : 'btn'} onClick={() => props.editor!.chain().focus().setTextAlign('right').run()} title="오른쪽 정렬">
-          ◨
-        </button>
-
-        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
-
-        {/* Columns */}
-        <button class="btn" onClick={() => (props.editor as any)!.chain().focus().setColumns(2).run()}>
-          ▐▐ 2열
-        </button>
-        <button class="btn" onClick={() => (props.editor as any)!.chain().focus().setColumns(3).run()}>
-          ▐▐▐ 3열
-        </button>
-
-        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
-
-        {/* Table */}
-        <button class="btn" onClick={() => props.editor!.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}>
-          ▦ 표
-        </button>
-        {tableActive() && <>
-          <button class="btn" onClick={() => props.editor!.chain().focus().addRowBefore().run()} title="위에 행 추가">↑+행</button>
-          <button class="btn" onClick={() => props.editor!.chain().focus().addRowAfter().run()} title="아래에 행 추가">↓+행</button>
-          <button class="btn" onClick={() => props.editor!.chain().focus().addColumnBefore().run()} title="왼쪽에 열 추가">←+열</button>
-          <button class="btn" onClick={() => props.editor!.chain().focus().addColumnAfter().run()} title="오른쪽에 열 추가">→+열</button>
+          {/* Text color */}
           <div class="relative">
-            <button class="btn" onClick={() => { setShowCellColor(!showCellColor()) }} title="셀 색상">🎨셀색</button>
-            <Show when={showCellColor()}>
+            <button class="btn" onClick={() => { setShowTextColor(!showTextColor()); setShowBgColor(false) }}>
+              <span style={`color: ${props.editor?.getAttributes('textStyle').color || '#000'}`}>●</span> 글자색
+            </button>
+            <Show when={showTextColor()}>
+              <div class="color-dropdown">
+                <For each={TEXT_COLORS}>
+                  {(c) => (
+                    <button
+                      class="color-dropdown-item"
+                      onClick={() => { props.editor!.chain().focus().setColor(c.color).run(); setShowTextColor(false) }}
+                    >
+                      <span class="color-dot" style={`background:${c.color};${c.border ? 'border:1px solid #d1d5db;' : ''}`} />
+                      <span>{c.name}</span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </div>
+
+          {/* Background color */}
+          <div class="relative">
+            <button class="btn" onClick={() => { setShowBgColor(!showBgColor()); setShowTextColor(false) }}>
+              <span class="px-0.5" style={`background: ${props.editor?.getAttributes('highlight').color || '#fef08a'}`}>A</span> 배경색
+            </button>
+            <Show when={showBgColor()}>
               <div class="color-dropdown">
                 <For each={BG_COLORS}>
                   {(c) => (
@@ -213,11 +134,11 @@ const Toolbar: Component<ToolbarProps> = (props) => {
                       class="color-dropdown-item"
                       onClick={() => {
                         if (c.color === '') {
-                          props.editor!.chain().focus().setCellAttribute('backgroundColor', '').run()
+                          props.editor!.chain().focus().unsetHighlight().run()
                         } else {
-                          props.editor!.chain().focus().setCellAttribute('backgroundColor', c.color).run()
+                          props.editor!.chain().focus().toggleHighlight({ color: c.color }).run()
                         }
-                        setShowCellColor(false)
+                        setShowBgColor(false)
                       }}
                     >
                       <span class="color-dot" style={c.color === '' ? 'background:white;border:1px dashed #d1d5db;' : `background:${c.color};${c.border ? 'border:1px solid #d1d5db;' : ''}`} />
@@ -228,98 +149,185 @@ const Toolbar: Component<ToolbarProps> = (props) => {
               </div>
             </Show>
           </div>
-          <button class="btn text-red-500" onClick={() => props.editor!.chain().focus().deleteRow().run()} title="행 삭제">행✕</button>
-          <button class="btn text-red-500" onClick={() => props.editor!.chain().focus().deleteColumn().run()} title="열 삭제">열✕</button>
-          <button class="btn text-red-500" onClick={() => props.editor!.chain().focus().deleteTable().run()} title="표 삭제">표✕</button>
-          <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
-          <button class="btn" onClick={() => {
-            const ed = props.editor!
-            const { state } = ed
-            const { $from } = state.selection
-            for (let d = $from.depth; d >= 0; d--) {
-              const node = $from.node(d)
-              if (node.type.name === 'table') {
-                // DOM에서 실제 테이블 너비 가져오기
-                const tableStart = $from.start(d) - 1
-                const tableDom = ed.view.nodeDOM(tableStart) as HTMLElement | null
-                const tableWrapper = tableDom?.closest('.tableWrapper') as HTMLElement | null
-                const tableEl = tableWrapper?.querySelector('table') || tableDom
-                const tableWidth = tableEl?.getBoundingClientRect().width || 600
-                const firstRow = node.child(0)
-                const colCount = firstRow.childCount
-                const equalWidth = Math.round(tableWidth / colCount)
-                const { tr } = state
-                let offset = 1
-                for (let r = 0; r < node.childCount; r++) {
-                  const row = node.child(r)
-                  offset += 1
-                  for (let c = 0; c < row.childCount; c++) {
-                    const cell = row.child(c)
-                    tr.setNodeMarkup(tableStart + offset, undefined, {
-                      ...cell.attrs,
-                      colwidth: [equalWidth],
-                    })
-                    offset += cell.nodeSize
-                  }
-                  offset += 1
-                }
-                ed.view.dispatch(tr)
-                break
-              }
-            }
-          }} title="셀 너비 같게">⇔너비</button>
-          <button class="btn" onClick={() => {
-            const ed = props.editor!
-            const { state } = ed
-            const { $from } = state.selection
-            // 현재 커서가 있는 표의 DOM 찾기
-            for (let d = $from.depth; d >= 0; d--) {
-              const node = $from.node(d)
-              if (node.type.name === 'table') {
-                const tableStart = $from.start(d) - 1
-                const tableDom = ed.view.nodeDOM(tableStart) as HTMLElement | null
-                const tableEl = tableDom?.querySelector('table') || tableDom?.closest('table') || tableDom
-                if (!tableEl) break
-                // 행별로 최대 높이 찾아서 적용
-                const rows = tableEl.querySelectorAll('tr')
-                rows.forEach((row) => {
-                  const cells = row.querySelectorAll('td, th')
-                  // 초기화
-                  cells.forEach((c) => { (c as HTMLElement).style.height = '' })
-                  // 최대 높이
-                  let maxH = 0
-                  cells.forEach((c) => { maxH = Math.max(maxH, (c as HTMLElement).offsetHeight) })
-                  cells.forEach((c) => { (c as HTMLElement).style.height = `${maxH}px` })
-                })
-                break
-              }
-            }
-          }} title="셀 높이 같게">⇕높이</button>
-        </>}
 
-        {/* Emoji */}
-        <div class="relative">
-          <button class="btn" onClick={() => setShowEmoji(!showEmoji())}>
-            😀 이모지
+          <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
+
+          {/* Text alignment */}
+          <button class={isActive('paragraph', { textAlign: 'left' }) === 'btn btn-active' || (!props.editor?.isActive({ textAlign: 'center' }) && !props.editor?.isActive({ textAlign: 'right' })) ? 'btn btn-active' : 'btn'} onClick={() => props.editor!.chain().focus().setTextAlign('left').run()} title="왼쪽 정렬">
+            ◧
           </button>
-          <Show when={showEmoji()}>
-            <EmojiPicker
-              onSelect={(emoji) => props.editor!.chain().focus().insertContent(emoji).run()}
-              onClose={() => setShowEmoji(false)}
-            />
-          </Show>
-        </div>
+          <button class={props.editor?.isActive({ textAlign: 'center' }) ? 'btn btn-active' : 'btn'} onClick={() => props.editor!.chain().focus().setTextAlign('center').run()} title="중앙 정렬">
+            ◫
+          </button>
+          <button class={props.editor?.isActive({ textAlign: 'right' }) ? 'btn btn-active' : 'btn'} onClick={() => props.editor!.chain().focus().setTextAlign('right').run()} title="오른쪽 정렬">
+            ◨
+          </button>
+        </Show>
 
         <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
 
-        {/* Action Button */}
-        <button class="btn" onClick={() => props.editor!.chain().focus().insertActionButton().run()}>
-          ⚡ 버튼
+        {/* ── 삽입 ── */}
+        <button class={groupBtnClass(showInsertGroup())} onClick={() => { setShowInsertGroup(!showInsertGroup()); setShowTextGroup(false) }}>
+          {showInsertGroup() ? '▼' : '▶'} 삽입
         </button>
 
+        <Show when={showInsertGroup()}>
+          {/* Task list */}
+          <button class={isActive('taskList')} onClick={() => props.editor!.chain().focus().toggleTaskList().run()}>
+            ☑ 할일
+          </button>
+
+          {/* Link */}
+          <button
+            class={isActive('link')}
+            onClick={() => {
+              if (props.editor!.isActive('link')) {
+                props.editor!.chain().focus().unsetLink().run()
+              } else {
+                const url = window.prompt('URL을 입력하세요:')
+                if (url) {
+                  props.editor!.chain().focus().setLink({ href: url }).run()
+                }
+              }
+            }}
+          >
+            🔗 링크
+          </button>
+
+          {/* Emoji */}
+          <div class="relative">
+            <button class="btn" onClick={() => setShowEmoji(!showEmoji())}>
+              😀 이모지
+            </button>
+            <Show when={showEmoji()}>
+              <EmojiPicker
+                onSelect={(emoji) => props.editor!.chain().focus().insertContent(emoji).run()}
+                onClose={() => setShowEmoji(false)}
+              />
+            </Show>
+          </div>
+
+          <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
+
+          {/* Columns */}
+          <button class="btn" onClick={() => (props.editor as any)!.chain().focus().setColumns(2).run()}>
+            ▐▐ 2열
+          </button>
+          <button class="btn" onClick={() => (props.editor as any)!.chain().focus().setColumns(3).run()}>
+            ▐▐▐ 3열
+          </button>
+
+          <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
+
+          {/* Table */}
+          <button class="btn" onClick={() => props.editor!.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}>
+            ▦ 표
+          </button>
+          {tableActive() && <>
+            <button class="btn" onClick={() => props.editor!.chain().focus().addRowBefore().run()} title="위에 행 추가">↑+행</button>
+            <button class="btn" onClick={() => props.editor!.chain().focus().addRowAfter().run()} title="아래에 행 추가">↓+행</button>
+            <button class="btn" onClick={() => props.editor!.chain().focus().addColumnBefore().run()} title="왼쪽에 열 추가">←+열</button>
+            <button class="btn" onClick={() => props.editor!.chain().focus().addColumnAfter().run()} title="오른쪽에 열 추가">→+열</button>
+            <div class="relative">
+              <button class="btn" onClick={() => { setShowCellColor(!showCellColor()) }} title="셀 색상">🎨셀색</button>
+              <Show when={showCellColor()}>
+                <div class="color-dropdown">
+                  <For each={BG_COLORS}>
+                    {(c) => (
+                      <button
+                        class="color-dropdown-item"
+                        onClick={() => {
+                          if (c.color === '') {
+                            props.editor!.chain().focus().setCellAttribute('backgroundColor', '').run()
+                          } else {
+                            props.editor!.chain().focus().setCellAttribute('backgroundColor', c.color).run()
+                          }
+                          setShowCellColor(false)
+                        }}
+                      >
+                        <span class="color-dot" style={c.color === '' ? 'background:white;border:1px dashed #d1d5db;' : `background:${c.color};${c.border ? 'border:1px solid #d1d5db;' : ''}`} />
+                        <span>{c.name}</span>
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </div>
+            <button class="btn text-red-500" onClick={() => props.editor!.chain().focus().deleteRow().run()} title="행 삭제">행✕</button>
+            <button class="btn text-red-500" onClick={() => props.editor!.chain().focus().deleteColumn().run()} title="열 삭제">열✕</button>
+            <button class="btn text-red-500" onClick={() => props.editor!.chain().focus().deleteTable().run()} title="표 삭제">표✕</button>
+            <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
+            <button class="btn" onClick={() => {
+              const ed = props.editor!
+              const { state } = ed
+              const { $from } = state.selection
+              for (let d = $from.depth; d >= 0; d--) {
+                const node = $from.node(d)
+                if (node.type.name === 'table') {
+                  const tableStart = $from.start(d) - 1
+                  const tableDom = ed.view.nodeDOM(tableStart) as HTMLElement | null
+                  const tableWrapper = tableDom?.closest('.tableWrapper') as HTMLElement | null
+                  const tableEl = tableWrapper?.querySelector('table') || tableDom
+                  const tableWidth = tableEl?.getBoundingClientRect().width || 600
+                  const firstRow = node.child(0)
+                  const colCount = firstRow.childCount
+                  const equalWidth = Math.round(tableWidth / colCount)
+                  const { tr } = state
+                  let offset = 1
+                  for (let r = 0; r < node.childCount; r++) {
+                    const row = node.child(r)
+                    offset += 1
+                    for (let c = 0; c < row.childCount; c++) {
+                      const cell = row.child(c)
+                      tr.setNodeMarkup(tableStart + offset, undefined, {
+                        ...cell.attrs,
+                        colwidth: [equalWidth],
+                      })
+                      offset += cell.nodeSize
+                    }
+                    offset += 1
+                  }
+                  ed.view.dispatch(tr)
+                  break
+                }
+              }
+            }} title="셀 너비 같게">⇔너비</button>
+            <button class="btn" onClick={() => {
+              const ed = props.editor!
+              const { state } = ed
+              const { $from } = state.selection
+              for (let d = $from.depth; d >= 0; d--) {
+                const node = $from.node(d)
+                if (node.type.name === 'table') {
+                  const tableStart = $from.start(d) - 1
+                  const tableDom = ed.view.nodeDOM(tableStart) as HTMLElement | null
+                  const tableEl = tableDom?.querySelector('table') || tableDom?.closest('table') || tableDom
+                  if (!tableEl) break
+                  const rows = tableEl.querySelectorAll('tr')
+                  rows.forEach((row) => {
+                    const cells = row.querySelectorAll('td, th')
+                    cells.forEach((c) => { (c as HTMLElement).style.height = '' })
+                    let maxH = 0
+                    cells.forEach((c) => { maxH = Math.max(maxH, (c as HTMLElement).offsetHeight) })
+                    cells.forEach((c) => { (c as HTMLElement).style.height = `${maxH}px` })
+                  })
+                  break
+                }
+              }
+            }} title="셀 높이 같게">⇕높이</button>
+          </>}
+
+          <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
+
+          {/* Action Button */}
+          <button class="btn" onClick={() => props.editor!.chain().focus().insertActionButton().run()}>
+            ⚡ 버튼
+          </button>
+        </Show>
+
         <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
 
-        {/* Export */}
+        {/* ── 내보내기 (유지) ── */}
         <div class="relative">
           <button class="btn" onClick={() => setShowExport(!showExport())}>
             📤 내보내기
@@ -348,7 +356,6 @@ const Toolbar: Component<ToolbarProps> = (props) => {
             </div>
           </Show>
         </div>
-        </Show>
       </div>
     </Show>
   )

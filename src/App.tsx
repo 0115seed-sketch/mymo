@@ -59,7 +59,8 @@ function App() {
           onDeleteFolder={(id: string) => store.deleteFolder(id)}
           onToggleTrash={() => store.setShowTrash(!store.showTrash())}
           onHideSidebar={() => setSidebarVisible(false)}
-          onMovePageToFolder={(pageId: string, folderId: string | null) => store.updatePage(pageId, { folderId })}
+          onMovePageToFolder={(pageId: string, folderId: string | null) => store.movePageToFolder(pageId, folderId)}
+          onReorderPage={(pageId: string, newIndex: number, folderId: string | null) => store.reorderPage(pageId, newIndex, folderId)}
         />
       </Show>
 

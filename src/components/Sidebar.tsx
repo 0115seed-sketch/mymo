@@ -24,6 +24,7 @@ interface SidebarProps {
   onToggleTrash: () => void
   onHideSidebar: () => void
   onMovePageToFolder: (pageId: string, folderId: string | null) => void
+  onReorderPage: (pageId: string, newIndex: number, folderId: string | null) => void
 }
 
 const Sidebar: Component<SidebarProps> = (props) => {
@@ -31,6 +32,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [expandedPages, setExpandedPages] = createSignal<Set<string>>(new Set())
   const [editingFolderId, setEditingFolderId] = createSignal<string | null>(null)
   const [draggedPageId, setDraggedPageId] = createSignal<string | null>(null)
+  const [dropTarget, setDropTarget] = createSignal<{ folderId: string | null; index: number } | null>(null)
 
   const toggleFolder = (id: string) => {
     const next = new Set(expandedFolders())
@@ -46,14 +48,53 @@ const Sidebar: Component<SidebarProps> = (props) => {
     setExpandedPages(next)
   }
 
-  const PageItem = (p: { page: Page; isTrash?: boolean; depth?: number }) => {
+  const PageItem = (p: { page: Page; isTrash?: boolean; depth?: number; index?: number; folderId?: string | null }) => {
     const children = () => props.subPages(p.page.id)
     const hasChildren = () => children().length > 0
     const isExpanded = () => expandedPages().has(p.page.id)
     const depth = p.depth ?? 0
 
+    const handlePageDragOver = (e: DragEvent) => {
+      if (!draggedPageId() || p.isTrash) return
+      e.preventDefault()
+      e.stopPropagation()
+      e.dataTransfer!.dropEffect = 'move'
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+      const midY = rect.top + rect.height / 2
+      const idx = p.index ?? 0
+      const newTarget = e.clientY < midY
+        ? { folderId: p.folderId ?? null, index: idx }
+        : { folderId: p.folderId ?? null, index: idx + 1 }
+      setDropTarget(newTarget)
+    }
+
+    const handlePageDrop = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const pageId = draggedPageId()
+      const dt = dropTarget()
+      if (pageId && dt) {
+        props.onReorderPage(pageId, dt.index, dt.folderId)
+      }
+      setDraggedPageId(null)
+      setDropTarget(null)
+    }
+
+    const isDropBefore = () => {
+      const dt = dropTarget()
+      return dt && dt.folderId === (p.folderId ?? null) && dt.index === (p.index ?? 0) && !!draggedPageId()
+    }
+
+    const isDropAfter = () => {
+      const dt = dropTarget()
+      return dt && dt.folderId === (p.folderId ?? null) && dt.index === (p.index ?? 0) + 1 && !!draggedPageId()
+    }
+
     return (
       <>
+        <Show when={isDropBefore()}>
+          <div class="h-0.5 mx-2 bg-blue-500 rounded" />
+        </Show>
         <div
           class={`group flex items-center py-1.5 mx-1 rounded cursor-pointer text-sm transition-colors ${
             props.currentPageId === p.page.id
@@ -68,7 +109,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
             setDraggedPageId(p.page.id)
             e.dataTransfer!.effectAllowed = 'move'
           }}
-          onDragEnd={() => setDraggedPageId(null)}
+          onDragEnd={() => { setDraggedPageId(null); setDropTarget(null) }}
+          onDragOver={handlePageDragOver}
+          onDrop={handlePageDrop}
         >
           <Show when={!p.isTrash && hasChildren()}>
             <span
@@ -113,6 +156,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
           <For each={children()}>
             {(child) => <PageItem page={child} depth={depth + 1} />}
           </For>
+        </Show>
+        <Show when={isDropAfter()}>
+          <div class="h-0.5 mx-2 bg-blue-500 rounded" />
         </Show>
       </>
     )
@@ -200,7 +246,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <Show when={isExpanded()}>
           <div class="pl-4">
             <For each={props.pagesInFolder(f.folder.id)}>
-              {(page) => <PageItem page={page} />}
+              {(page, i) => <PageItem page={page} index={i()} folderId={f.folder.id} />}
             </For>
           </div>
         </Show>
@@ -259,7 +305,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
 
         {/* Root pages (no folder) */}
         <For each={props.rootPages}>
-          {(page) => <PageItem page={page} />}
+          {(page, i) => <PageItem page={page} index={i()} folderId={null} />}
         </For>
 
         <Show when={props.folders.length === 0 && props.rootPages.length === 0}>

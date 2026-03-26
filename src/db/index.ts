@@ -14,6 +14,7 @@ export interface Page {
   folderId: string | null  // null = root level
   parentPageId: string | null  // null = top-level page, otherwise sub-page
   deleted: boolean  // true = in trash
+  order: number  // manual sort order (lower = higher priority)
   createdAt: number
   updatedAt: number
 }
@@ -34,6 +35,16 @@ db.version(3).stores({
 }).upgrade(tx => {
   return tx.table('pages').toCollection().modify(page => {
     if (page.parentPageId === undefined) page.parentPageId = null
+  })
+})
+
+db.version(4).stores({
+  pages: 'id, title, updatedAt, folderId, deleted, parentPageId, order',
+  folders: 'id, name, order',
+}).upgrade(tx => {
+  let i = 0
+  return tx.table('pages').toCollection().modify(page => {
+    if (page.order === undefined) page.order = i++
   })
 })
 
