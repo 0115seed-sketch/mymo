@@ -21,41 +21,25 @@ import { Plugin, PluginKey } from '@tiptap/pm/state'
 import Toolbar from './Toolbar'
 import { darkMode } from '../stores/settings'
 
-// ── 테이블 노드 위치 찾기 헬퍼 ──
-function findTablePos(view: any, tableEl: HTMLElement): number {
-  const editorDom = view.dom
-  const tables = editorDom.querySelectorAll('table')
-  let tableIndex = -1
-  tables.forEach((t: Element, i: number) => { if (t === tableEl) tableIndex = i })
-  if (tableIndex === -1) return -1
-
-  let count = 0
-  let found = -1
-  view.state.doc.descendants((node: any, pos: number) => {
-    if (node.type.name === 'table') {
-      if (count === tableIndex) found = pos
-      count++
-    }
-  })
-  return found
-}
-
 const EDGE_THRESHOLD = 6 // px from cell edge to trigger resize
 
 // ── 테이블 리사이즈 플러그인 (행 높이 + 열 너비, 셀 경계 감지 방식) ──
+// 드래그 중에는 ProseMirror DOM을 건드리지 않고 인디케이터만 표시.
+// mouseup 시 트랜잭션을 디스패치하여 최종 크기를 반영.
 const TableResize = Extension.create({
   name: 'tableResize',
 
   addProseMirrorPlugins() {
     let resizing: {
       type: 'row' | 'col'
-      tableEl: HTMLTableElement
-      tr?: HTMLTableRowElement
-      cell?: HTMLElement
-      nextCell?: HTMLElement | null
-      startPos: number
-      startSize: number
-      nextStartSize: number
+      tableIndex: number   // 에디터 내 테이블 순서 인덱스
+      rowIndex: number      // 행 인덱스 (행 리사이즈용)
+      colIndex: number      // 열 인덱스 (열 리사이즈용)
+      hasNextCell: boolean  // 오른쪽 이웃 셀 존재 여부
+      startPos: number      // 드래그 시작 마우스 좌표
+      startSize: number     // 드래그 시작 셀/행 크기
+      nextStartSize: number // 이웃 셀 시작 크기
+      indicator: HTMLDivElement // 리사이즈 인디케이터 라인
     } | null = null
 
     return [
@@ -103,46 +87,86 @@ const TableResize = Extension.create({
               const tableEl = cell.closest('table') as HTMLTableElement | null
               if (!tableEl) return false
 
+              // 테이블 인덱스 구하기
+              const allTables = view.dom.querySelectorAll('table')
+              let tableIndex = -1
+              allTables.forEach((t: Element, i: number) => { if (t === tableEl) tableIndex = i })
+              if (tableIndex === -1) return false
+
+              const tableRect = tableEl.getBoundingClientRect()
+
+              // 인디케이터 라인 생성
+              const indicator = document.createElement('div')
+              indicator.style.position = 'fixed'
+              indicator.style.zIndex = '9999'
+              indicator.style.pointerEvents = 'none'
+              indicator.style.background = 'var(--accent-color, #3b82f6)'
+
               if (nearBottom) {
                 // 행 높이 리사이즈
                 const tr = cell.closest('tr') as HTMLTableRowElement
+                if (!tr) return false
+                const allRows = tableEl.querySelectorAll(':scope > thead > tr, :scope > tbody > tr, :scope > tr')
+                let rowIndex = -1
+                allRows.forEach((r, i) => { if (r === tr) rowIndex = i })
+                if (rowIndex === -1) return false
+
+                // 수평 인디케이터
+                indicator.style.left = `${tableRect.left}px`
+                indicator.style.width = `${tableRect.width}px`
+                indicator.style.height = '2px'
+                indicator.style.top = `${event.clientY}px`
+                document.body.appendChild(indicator)
+
                 resizing = {
                   type: 'row',
-                  tableEl,
-                  tr,
+                  tableIndex,
+                  rowIndex,
+                  colIndex: -1,
+                  hasNextCell: false,
                   startPos: event.clientY,
                   startSize: tr.offsetHeight,
                   nextStartSize: 0,
+                  indicator,
                 }
               } else {
                 // 열 너비 리사이즈
+                const tr = cell.closest('tr')
+                if (!tr) return false
+                const cellsInRow = tr.querySelectorAll('td, th')
+                let colIndex = -1
+                cellsInRow.forEach((c, i) => { if (c === cell) colIndex = i })
+                if (colIndex === -1) return false
+
                 const nextCell = cell.nextElementSibling as HTMLElement | null
+
+                // 수직 인디케이터
+                indicator.style.top = `${tableRect.top}px`
+                indicator.style.height = `${tableRect.height}px`
+                indicator.style.width = '2px'
+                indicator.style.left = `${event.clientX}px`
+                document.body.appendChild(indicator)
+
                 resizing = {
                   type: 'col',
-                  tableEl,
-                  cell,
-                  nextCell,
+                  tableIndex,
+                  rowIndex: -1,
+                  colIndex,
+                  hasNextCell: !!nextCell,
                   startPos: event.clientX,
                   startSize: cell.offsetWidth,
                   nextStartSize: nextCell ? nextCell.offsetWidth : 0,
+                  indicator,
                 }
               }
 
               const onMouseMove = (e: MouseEvent) => {
                 if (!resizing) return
+                // ProseMirror DOM을 건드리지 않고 인디케이터 위치만 업데이트
                 if (resizing.type === 'row') {
-                  const newHeight = Math.max(30, resizing.startSize + (e.clientY - resizing.startPos))
-                  resizing.tr!.style.height = `${newHeight}px`
-                  const cells = resizing.tr!.querySelectorAll('td, th')
-                  cells.forEach(c => { (c as HTMLElement).style.height = `${newHeight}px` })
+                  resizing.indicator.style.top = `${e.clientY}px`
                 } else {
-                  const delta = e.clientX - resizing.startPos
-                  const newWidth = Math.max(50, resizing.startSize + delta)
-                  resizing.cell!.style.width = `${newWidth}px`
-                  if (resizing.nextCell) {
-                    const nextWidth = Math.max(50, resizing.nextStartSize - delta)
-                    resizing.nextCell.style.width = `${nextWidth}px`
-                  }
+                  resizing.indicator.style.left = `${e.clientX}px`
                 }
               }
 
@@ -154,7 +178,18 @@ const TableResize = Extension.create({
 
                 if (!resizing) return
 
-                const tablePos = findTablePos(view, resizing.tableEl)
+                // 인디케이터 제거
+                resizing.indicator.remove()
+
+                // 테이블 노드 찾기 (인덱스 기반, DOM 참조 불필요)
+                let tablePos = -1
+                let tCount = 0
+                view.state.doc.descendants((node: any, pos: number) => {
+                  if (node.type.name === 'table') {
+                    if (tCount === resizing!.tableIndex) tablePos = pos
+                    tCount++
+                  }
+                })
                 if (tablePos === -1) { resizing = null; return }
 
                 const tableNode = view.state.doc.nodeAt(tablePos)
@@ -165,17 +200,11 @@ const TableResize = Extension.create({
                 if (resizing.type === 'row') {
                   const finalHeight = Math.max(30, resizing.startSize + (e.clientY - resizing.startPos))
 
-                  // 행 인덱스 찾기
-                  const allRows = resizing.tableEl.querySelectorAll(':scope > thead > tr, :scope > tbody > tr, :scope > tr')
-                  let rowIndex = -1
-                  allRows.forEach((r, i) => { if (r === resizing!.tr) rowIndex = i })
-                  if (rowIndex === -1) { resizing = null; return }
-
                   let offset = 1
                   for (let r = 0; r < tableNode.childCount; r++) {
                     const row = tableNode.child(r)
                     offset += 1
-                    if (r === rowIndex) {
+                    if (r === resizing.rowIndex) {
                       for (let c = 0; c < row.childCount; c++) {
                         const cellNode = row.child(c)
                         transaction.setNodeMarkup(tablePos + offset, undefined, {
@@ -194,14 +223,7 @@ const TableResize = Extension.create({
                 } else {
                   const delta = e.clientX - resizing.startPos
                   const newWidth = Math.max(50, resizing.startSize + delta)
-                  const nextWidth = resizing.nextCell ? Math.max(50, resizing.nextStartSize - delta) : 0
-
-                  // 열 인덱스 찾기
-                  const tr = resizing.cell!.closest('tr')!
-                  const cellsInRow = tr.querySelectorAll('td, th')
-                  let colIndex = -1
-                  cellsInRow.forEach((c, i) => { if (c === resizing!.cell) colIndex = i })
-                  if (colIndex === -1) { resizing = null; return }
+                  const nextWidth = resizing.hasNextCell ? Math.max(50, resizing.nextStartSize - delta) : 0
 
                   let offset = 1
                   for (let r = 0; r < tableNode.childCount; r++) {
@@ -209,12 +231,12 @@ const TableResize = Extension.create({
                     offset += 1
                     for (let c = 0; c < row.childCount; c++) {
                       const cellNode = row.child(c)
-                      if (c === colIndex) {
+                      if (c === resizing.colIndex) {
                         transaction.setNodeMarkup(tablePos + offset, undefined, {
                           ...cellNode.attrs,
                           colwidth: [newWidth],
                         })
-                      } else if (c === colIndex + 1 && resizing.nextCell) {
+                      } else if (c === resizing.colIndex + 1 && resizing.hasNextCell) {
                         transaction.setNodeMarkup(tablePos + offset, undefined, {
                           ...cellNode.attrs,
                           colwidth: [nextWidth],
