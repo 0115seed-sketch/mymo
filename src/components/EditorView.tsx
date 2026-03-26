@@ -59,10 +59,11 @@ const TableResize = Extension.create({
               const rect = cell.getBoundingClientRect()
               const nearBottom = event.clientY > rect.bottom - EDGE_THRESHOLD
               const nearRight = event.clientX > rect.right - EDGE_THRESHOLD
+              const nearLeft = !nearBottom && event.clientX < rect.left + EDGE_THRESHOLD
 
               if (nearBottom) {
                 document.body.style.cursor = 'row-resize'
-              } else if (nearRight) {
+              } else if (nearRight || nearLeft) {
                 document.body.style.cursor = 'col-resize'
               } else {
                 document.body.style.cursor = ''
@@ -78,8 +79,9 @@ const TableResize = Extension.create({
               const rect = cell.getBoundingClientRect()
               const nearBottom = event.clientY > rect.bottom - EDGE_THRESHOLD
               const nearRight = event.clientX > rect.right - EDGE_THRESHOLD
+              const nearLeft = !nearBottom && event.clientX < rect.left + EDGE_THRESHOLD
 
-              if (!nearBottom && !nearRight) return false
+              if (!nearBottom && !nearRight && !nearLeft) return false
 
               event.preventDefault()
               event.stopPropagation()
@@ -130,15 +132,30 @@ const TableResize = Extension.create({
                   indicator,
                 }
               } else {
-                // 열 너비 리사이즈
+                // 열 너비 리사이즈: nearRight이면 현재 열, nearLeft이면 이전 열
                 const tr = cell.closest('tr')
                 if (!tr) return false
                 const cellsInRow = tr.querySelectorAll('td, th')
-                let colIndex = -1
-                cellsInRow.forEach((c, i) => { if (c === cell) colIndex = i })
-                if (colIndex === -1) return false
+                let currentColIndex = -1
+                cellsInRow.forEach((c, i) => { if (c === cell) currentColIndex = i })
+                if (currentColIndex === -1) return false
 
-                const nextCell = cell.nextElementSibling as HTMLElement | null
+                let resizeColIndex: number
+                let resizeCell: HTMLElement
+                let resizeNextCell: HTMLElement | null
+
+                if (nearLeft && currentColIndex > 0) {
+                  // 왼쪽 경계: 이전 열을 리사이즈
+                  resizeColIndex = currentColIndex - 1
+                  resizeCell = cellsInRow[resizeColIndex] as HTMLElement
+                  resizeNextCell = cell
+                } else if (nearRight) {
+                  resizeColIndex = currentColIndex
+                  resizeCell = cell
+                  resizeNextCell = cell.nextElementSibling as HTMLElement | null
+                } else {
+                  return false // nearLeft but first column
+                }
 
                 // 수직 인디케이터
                 indicator.style.top = `${tableRect.top}px`
@@ -151,11 +168,11 @@ const TableResize = Extension.create({
                   type: 'col',
                   tableIndex,
                   rowIndex: -1,
-                  colIndex,
-                  hasNextCell: !!nextCell,
+                  colIndex: resizeColIndex,
+                  hasNextCell: !!resizeNextCell,
                   startPos: event.clientX,
-                  startSize: cell.offsetWidth,
-                  nextStartSize: nextCell ? nextCell.offsetWidth : 0,
+                  startSize: resizeCell.offsetWidth,
+                  nextStartSize: resizeNextCell ? resizeNextCell.offsetWidth : 0,
                   indicator,
                 }
               }
@@ -276,6 +293,7 @@ interface EditorViewProps {
   sidebarVisible?: boolean
   onUpdate: (content: string) => void
   onTitleChange: (title: string) => void
+  onEditorReady?: (editor: Editor | null) => void
 }
 
 const EditorView: Component<EditorViewProps> = (props) => {
@@ -333,6 +351,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
       },
     })
     setEditor(ed)
+    props.onEditorReady?.(ed)
   })
 
   // 페이지 변경 시에만 에디터 내용 교체 (content 변경은 무시 — 커서 리셋 방지)
@@ -349,6 +368,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
 
   onCleanup(() => {
     if (saveTimeout) clearTimeout(saveTimeout)
+    props.onEditorReady?.(null)
     editor()?.destroy()
   })
 

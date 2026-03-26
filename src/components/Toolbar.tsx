@@ -2,7 +2,6 @@ import { Show, createSignal, For } from 'solid-js'
 import type { Component } from 'solid-js'
 import type { Editor } from '@tiptap/core'
 import EmojiPicker from './EmojiPicker'
-import { exportAsPDF, exportAsImage, exportAsMarkdown, exportAsText, backupData, restoreData } from '../utils/export'
 import { darkMode } from '../stores/settings'
 
 const TEXT_COLORS = [
@@ -32,7 +31,6 @@ interface ToolbarProps {
   editor: Editor | null
   version?: number
   pageTitle?: string
-  onDataRestored?: () => void
 }
 
 const Toolbar: Component<ToolbarProps> = (props) => {
@@ -40,7 +38,6 @@ const Toolbar: Component<ToolbarProps> = (props) => {
   const [showTextColor, setShowTextColor] = createSignal(false)
   const [showBgColor, setShowBgColor] = createSignal(false)
   const [showCellColor, setShowCellColor] = createSignal(false)
-  const [showExport, setShowExport] = createSignal(false)
   const [showTextGroup, setShowTextGroup] = createSignal(false)
   const [showInsertGroup, setShowInsertGroup] = createSignal(false)
 
@@ -62,7 +59,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <div class={`flex items-center gap-0.5 px-3 py-1.5 border-b flex-wrap ${darkMode() ? 'border-gray-700 bg-[#1a1b2e]' : 'border-gray-200 bg-white'}`}>
 
         {/* ── 글자 설정 ── */}
-        <button class={groupBtnClass(showTextGroup())} onClick={() => { setShowTextGroup(!showTextGroup()); setShowInsertGroup(false) }}>
+        <button class={groupBtnClass(showTextGroup())} onClick={() => setShowTextGroup(!showTextGroup())}>
           {showTextGroup() ? '▼' : '▶'} 글자 설정
         </button>
 
@@ -164,10 +161,13 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           </button>
         </Show>
 
-        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
+        {/* 글자 설정이 펼쳐져 있으면 줄바꿈 */}
+        <Show when={showTextGroup()}>
+          <div class="basis-full h-0" />
+        </Show>
 
         {/* ── 삽입 ── */}
-        <button class={groupBtnClass(showInsertGroup())} onClick={() => { setShowInsertGroup(!showInsertGroup()); setShowTextGroup(false) }}>
+        <button class={groupBtnClass(showInsertGroup())} onClick={() => setShowInsertGroup(!showInsertGroup())}>
           {showInsertGroup() ? '▼' : '▶'} 삽입
         </button>
 
@@ -253,9 +253,6 @@ const Toolbar: Component<ToolbarProps> = (props) => {
                 </div>
               </Show>
             </div>
-            <button class="btn text-red-500" onClick={() => props.editor!.chain().focus().deleteRow().run()} title="행 삭제">행✕</button>
-            <button class="btn text-red-500" onClick={() => props.editor!.chain().focus().deleteColumn().run()} title="열 삭제">열✕</button>
-            <button class="btn text-red-500" onClick={() => props.editor!.chain().focus().deleteTable().run()} title="표 삭제">표✕</button>
             <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
             <button class="btn" onClick={() => {
               const ed = props.editor!
@@ -303,22 +300,64 @@ const Toolbar: Component<ToolbarProps> = (props) => {
                   const tableDom = ed.view.nodeDOM(tableStart) as HTMLElement | null
                   const tableEl = tableDom?.querySelector('table') || tableDom?.closest('table') || tableDom
                   if (!tableEl) break
-                  // 전체 테이블 높이를 행 수로 나누어 균등 배분
-                  const totalHeight = (tableEl as HTMLElement).offsetHeight
-                  const rowCount = node.childCount
-                  const equalHeight = Math.round(totalHeight / rowCount)
+
+                  // 선택된 행 인덱스를 구함 (CellSelection이면 선택된 셀의 행만, 아니면 전체)
+                  const sel = state.selection as any
+                  const selectedRowIndices = new Set<number>()
+
+                  if (sel.constructor.name === 'CellSelection' && sel.ranges) {
+                    // CellSelection: 선택된 셀이 속한 행만
+                    let offset = tableStart + 1
+                    for (let r = 0; r < node.childCount; r++) {
+                      const row = node.child(r)
+                      offset += 1
+                      for (let c = 0; c < row.childCount; c++) {
+                        const cellNode = row.child(c)
+                        const cellStart = offset
+                        for (const range of sel.ranges) {
+                          if (range.$from.pos >= cellStart && range.$from.pos < cellStart + cellNode.nodeSize) {
+                            selectedRowIndices.add(r)
+                            break
+                          }
+                        }
+                        offset += cellNode.nodeSize
+                      }
+                      offset += 1
+                    }
+                  } else {
+                    // 일반 커서: 전체 행
+                    for (let r = 0; r < node.childCount; r++) selectedRowIndices.add(r)
+                  }
+
+                  if (selectedRowIndices.size === 0) break
+
+                  // 선택된 행들의 총 높이를 구해서 균등 분배
+                  const rowEls = (tableEl as HTMLElement).querySelectorAll(':scope > thead > tr, :scope > tbody > tr, :scope > tr')
+                  let totalSelectedHeight = 0
+                  selectedRowIndices.forEach(r => {
+                    const rowEl = rowEls[r]
+                    if (rowEl) totalSelectedHeight += (rowEl as HTMLElement).offsetHeight
+                  })
+                  const equalHeight = Math.round(totalSelectedHeight / selectedRowIndices.size)
+
                   const { tr } = state
                   let offset = 1
-                  for (let r = 0; r < rowCount; r++) {
+                  for (let r = 0; r < node.childCount; r++) {
                     const row = node.child(r)
                     offset += 1
-                    for (let c = 0; c < row.childCount; c++) {
-                      const cell = row.child(c)
-                      tr.setNodeMarkup(tableStart + offset, undefined, {
-                        ...cell.attrs,
-                        rowHeight: equalHeight,
-                      })
-                      offset += cell.nodeSize
+                    if (selectedRowIndices.has(r)) {
+                      for (let c = 0; c < row.childCount; c++) {
+                        const cell = row.child(c)
+                        tr.setNodeMarkup(tableStart + offset, undefined, {
+                          ...cell.attrs,
+                          rowHeight: equalHeight,
+                        })
+                        offset += cell.nodeSize
+                      }
+                    } else {
+                      for (let c = 0; c < row.childCount; c++) {
+                        offset += row.child(c).nodeSize
+                      }
                     }
                     offset += 1
                   }
@@ -336,38 +375,6 @@ const Toolbar: Component<ToolbarProps> = (props) => {
             ⚡ 버튼
           </button>
         </Show>
-
-        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
-
-        {/* ── 내보내기 (유지) ── */}
-        <div class="relative">
-          <button class="btn" onClick={() => setShowExport(!showExport())}>
-            📤 내보내기
-          </button>
-          <Show when={showExport()}>
-            <div class="color-dropdown" style="width: 140px;">
-              <button class="color-dropdown-item" onClick={() => { exportAsPDF(props.editor!, props.pageTitle || '문서'); setShowExport(false) }}>
-                <span style="font-size:1.1em">📄</span> <span>PDF</span>
-              </button>
-              <button class="color-dropdown-item" onClick={() => { exportAsImage(props.editor!, props.pageTitle || '문서'); setShowExport(false) }}>
-                <span style="font-size:1.1em">🖼️</span> <span>이미지 (PNG)</span>
-              </button>
-              <button class="color-dropdown-item" onClick={() => { exportAsMarkdown(props.editor!, props.pageTitle || '문서'); setShowExport(false) }}>
-                <span style="font-size:1.1em">📝</span> <span>마크다운</span>
-              </button>
-              <button class="color-dropdown-item" onClick={() => { exportAsText(props.editor!, props.pageTitle || '문서'); setShowExport(false) }}>
-                <span style="font-size:1.1em">📃</span> <span>텍스트</span>
-              </button>
-              <div style={`border-top: 1px solid var(--border-light); margin: 4px 0;`} />
-              <button class="color-dropdown-item" onClick={() => { backupData(); setShowExport(false) }}>
-                <span style="font-size:1.1em">💾</span> <span>백업 (.json)</span>
-              </button>
-              <button class="color-dropdown-item" onClick={async () => { setShowExport(false); const r = await restoreData(); if (r.success) { props.onDataRestored?.(); alert(r.message); location.reload(); } else if (r.message !== '취소되었습니다.') { alert(r.message); } }}>
-                <span style="font-size:1.1em">📂</span> <span>불러오기</span>
-              </button>
-            </div>
-          </Show>
-        </div>
       </div>
     </Show>
   )

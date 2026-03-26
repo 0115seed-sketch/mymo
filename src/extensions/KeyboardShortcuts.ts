@@ -14,6 +14,48 @@ export const KeyboardShortcuts = Extension.create({
   name: 'customKeyboardShortcuts',
 
   addKeyboardShortcuts() {
+    const handleTableStructureDelete = (): boolean => {
+      const { state } = this.editor
+      const sel = state.selection as any
+
+      if (sel.constructor.name !== 'CellSelection' || !this.editor.isActive('table')) {
+        return false
+      }
+
+      const $anchor = sel.$anchorCell
+      if (!$anchor) return false
+
+      const tableStart = $anchor.start(-1)
+      const tableNode = state.doc.nodeAt(tableStart - 1)
+      if (!tableNode) return false
+
+      const totalRows = tableNode.childCount
+      const totalCols = tableNode.child(0).childCount
+      const totalCells = totalRows * totalCols
+      const selectedCount = sel.ranges?.length || 0
+
+      // 전체 선택 → 표 삭제
+      if (selectedCount >= totalCells) {
+        return this.editor.chain().focus().deleteTable().run()
+      }
+
+      // 행 전체 선택 확인
+      if (selectedCount >= totalCols && selectedCount % totalCols === 0) {
+        if (typeof sel.isRowSelection === 'function' ? sel.isRowSelection() : true) {
+          return this.editor.chain().focus().deleteRow().run()
+        }
+      }
+
+      // 열 전체 선택 확인
+      if (selectedCount >= totalRows && selectedCount % totalRows === 0) {
+        if (typeof sel.isColSelection === 'function' ? sel.isColSelection() : true) {
+          return this.editor.chain().focus().deleteColumn().run()
+        }
+      }
+
+      return false
+    }
+
     return {
       // Ctrl+A: 점진적 블록 단위 선택
       // 1차: 현재 셀/열/토글 내용 선택
@@ -164,6 +206,14 @@ export const KeyboardShortcuts = Extension.create({
           return this.editor.chain().focus().deleteRow().run()
         }
         return false
+      },
+
+      // 표: 전체 행/열/표 선택 후 Delete → 구조 삭제
+      'Delete': () => {
+        return handleTableStructureDelete()
+      },
+      'Backspace': () => {
+        return handleTableStructureDelete()
       },
     }
   },

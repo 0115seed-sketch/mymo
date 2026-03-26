@@ -1,8 +1,10 @@
 import { onMount, onCleanup, Show, createSignal, createEffect } from 'solid-js'
+import type { Editor } from '@tiptap/core'
 import { createPageStore } from './stores/pages'
 import { user, authLoading, loginWithGoogle, logout } from './stores/auth'
 import { pullFromCloud, startRealtimeSync, stopRealtimeSync } from './stores/sync'
 import { darkMode } from './stores/settings'
+import { exportAsPDF, exportAsImage, exportAsMarkdown, exportAsText, backupData, restoreData } from './utils/export'
 import Sidebar from './components/Sidebar'
 import EditorView from './components/EditorView'
 import SettingsModal from './components/SettingsModal'
@@ -11,6 +13,8 @@ function App() {
   const store = createPageStore()
   const [sidebarVisible, setSidebarVisible] = createSignal(true)
   const [showSettings, setShowSettings] = createSignal(false)
+  const [currentEditor, setCurrentEditor] = createSignal<Editor | null>(null)
+  const [showExport, setShowExport] = createSignal(false)
 
   onMount(async () => {
     await store.loadAll()
@@ -76,6 +80,39 @@ function App() {
       {/* 로그인/로그아웃 버튼 */}
       <Show when={!authLoading()}>
         <div class="absolute top-2 right-3 z-50 flex items-center gap-2">
+          {/* 내보내기 버튼 */}
+          <Show when={currentEditor()}>
+            <div class="relative">
+              <button
+                class={`cursor-pointer border rounded-lg px-2 py-1.5 text-xs transition-colors shadow-sm ${darkMode() ? 'bg-gray-800 border-gray-600 hover:bg-gray-700 text-gray-300' : 'bg-white border-gray-300 hover:bg-gray-50 text-gray-700'}`}
+                onClick={() => setShowExport(!showExport())}
+                title="내보내기"
+              >📤</button>
+              <Show when={showExport()}>
+                <div class="color-dropdown" style="width: 140px; right: 0; left: auto;">
+                  <button class="color-dropdown-item" onClick={() => { exportAsPDF(currentEditor()!, store.currentPage()?.title || '문서'); setShowExport(false) }}>
+                    <span style="font-size:1.1em">📄</span> <span>PDF</span>
+                  </button>
+                  <button class="color-dropdown-item" onClick={() => { exportAsImage(currentEditor()!, store.currentPage()?.title || '문서'); setShowExport(false) }}>
+                    <span style="font-size:1.1em">🖼️</span> <span>이미지 (PNG)</span>
+                  </button>
+                  <button class="color-dropdown-item" onClick={() => { exportAsMarkdown(currentEditor()!, store.currentPage()?.title || '문서'); setShowExport(false) }}>
+                    <span style="font-size:1.1em">📝</span> <span>마크다운</span>
+                  </button>
+                  <button class="color-dropdown-item" onClick={() => { exportAsText(currentEditor()!, store.currentPage()?.title || '문서'); setShowExport(false) }}>
+                    <span style="font-size:1.1em">📃</span> <span>텍스트</span>
+                  </button>
+                  <div style="border-top: 1px solid var(--border-light); margin: 4px 0;" />
+                  <button class="color-dropdown-item" onClick={() => { backupData(); setShowExport(false) }}>
+                    <span style="font-size:1.1em">💾</span> <span>백업 (.json)</span>
+                  </button>
+                  <button class="color-dropdown-item" onClick={async () => { setShowExport(false); const r = await restoreData(); if (r.success) { await store.loadAll(); alert(r.message); location.reload(); } else if (r.message !== '취소되었습니다.') { alert(r.message); } }}>
+                    <span style="font-size:1.1em">📂</span> <span>불러오기</span>
+                  </button>
+                </div>
+              </Show>
+            </div>
+          </Show>
           {/* 설정 버튼 */}
           <button
             class={`cursor-pointer border rounded-lg px-2 py-1.5 text-xs transition-colors shadow-sm ${darkMode() ? 'bg-gray-800 border-gray-600 hover:bg-gray-700 text-gray-300' : 'bg-white border-gray-300 hover:bg-gray-50 text-gray-700'}`}
@@ -131,6 +168,7 @@ function App() {
             sidebarVisible={sidebarVisible()}
             onUpdate={(content) => store.updatePage(page().id, { content })}
             onTitleChange={(title) => store.updatePage(page().id, { title })}
+            onEditorReady={setCurrentEditor}
           />
         )}
       </Show>
