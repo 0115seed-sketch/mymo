@@ -240,7 +240,6 @@ const TableResize = Extension.create({
                 } else {
                   const delta = e.clientX - resizing.startPos
                   const newWidth = Math.max(50, resizing.startSize + delta)
-                  const nextWidth = resizing.hasNextCell ? Math.max(50, resizing.nextStartSize - delta) : 0
 
                   let offset = 1
                   for (let r = 0; r < tableNode.childCount; r++) {
@@ -252,11 +251,6 @@ const TableResize = Extension.create({
                         transaction.setNodeMarkup(tablePos + offset, undefined, {
                           ...cellNode.attrs,
                           colwidth: [newWidth],
-                        })
-                      } else if (c === resizing.colIndex + 1 && resizing.hasNextCell) {
-                        transaction.setNodeMarkup(tablePos + offset, undefined, {
-                          ...cellNode.attrs,
-                          colwidth: [nextWidth],
                         })
                       }
                       offset += cellNode.nodeSize

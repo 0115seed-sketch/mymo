@@ -218,10 +218,7 @@ body {
 /* Table styles */
 .editor-content .tiptap table {
   border-collapse: collapse;
-  width: 100%;
   margin: 0.75em 0;
-  overflow: hidden;
-  table-layout: fixed;
 }
 
 .editor-content .tiptap table td,

@@ -25,7 +25,7 @@ const sharedAttributes = {
     },
   },
   colwidth: {
-    default: null,
+    default: [383],
     parseHTML: (element: HTMLElement) => {
       const w = element.getAttribute('colwidth') || element.getAttribute('data-colwidth')
       if (w) return w.split(',').map(Number)
@@ -35,9 +35,10 @@ const sharedAttributes = {
     },
     renderHTML: (attributes: Record<string, any>) => {
       if (!attributes.colwidth) return {}
+      const w = attributes.colwidth[0]
       return {
         'data-colwidth': attributes.colwidth.join(','),
-        style: `width: ${attributes.colwidth[0]}px`,
+        style: `min-width: ${w}px; width: ${w}px; max-width: ${w}px`,
       }
     },
   },

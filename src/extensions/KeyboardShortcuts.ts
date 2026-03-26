@@ -17,40 +17,51 @@ export const KeyboardShortcuts = Extension.create({
     const handleTableStructureDelete = (): boolean => {
       const { state } = this.editor
       const sel = state.selection as any
-
-      if (!sel.$anchorCell || !this.editor.isActive('table')) {
-        return false
-      }
+      if (!sel.$anchorCell || !this.editor.isActive('table')) return false
 
       const $anchor = sel.$anchorCell
-      if (!$anchor) return false
-
       const tableStart = $anchor.start(-1)
       const tableNode = state.doc.nodeAt(tableStart - 1)
       if (!tableNode) return false
 
       const totalRows = tableNode.childCount
       const totalCols = tableNode.child(0).childCount
-      const totalCells = totalRows * totalCols
-      const selectedCount = sel.ranges?.length || 0
 
-      // 전체 선택 → 표 삭제
-      if (selectedCount >= totalCells) {
+      // $anchorCell/$headCell pos로 선택된 행/열 범위 결정
+      const anchorPos = sel.$anchorCell.pos
+      const headPos = sel.$headCell.pos
+      let anchorRow = -1, anchorCol = -1, headRow = -1, headCol = -1
+      let off = tableStart
+      for (let r = 0; r < tableNode.childCount; r++) {
+        const row = tableNode.child(r)
+        off += 1
+        for (let c = 0; c < row.childCount; c++) {
+          if (off === anchorPos) { anchorRow = r; anchorCol = c }
+          if (off === headPos) { headRow = r; headCol = c }
+          off += row.child(c).nodeSize
+        }
+        off += 1
+      }
+      if (anchorRow < 0 || headRow < 0) return false
+
+      const minCol = Math.min(anchorCol, headCol)
+      const maxCol = Math.max(anchorCol, headCol)
+      const minRow = Math.min(anchorRow, headRow)
+      const maxRow = Math.max(anchorRow, headRow)
+
+      // 전체 표 선택 → 삭제
+      if (minRow === 0 && maxRow === totalRows - 1 && minCol === 0 && maxCol === totalCols - 1) {
         return this.editor.chain().focus().deleteTable().run()
       }
 
-      // 행 전체 선택 확인
-      if (selectedCount >= totalCols && selectedCount % totalCols === 0) {
-        if (typeof sel.isRowSelection === 'function' ? sel.isRowSelection() : true) {
-          return this.editor.chain().focus().deleteRow().run()
-        }
+      // 모든 열이 선택됨 → 행 삭제
+      if (minCol === 0 && maxCol === totalCols - 1) {
+        return this.editor.chain().focus().deleteRow().run()
       }
 
-      // 열 전체 선택 확인
-      if (selectedCount >= totalRows && selectedCount % totalRows === 0) {
-        if (typeof sel.isColSelection === 'function' ? sel.isColSelection() : true) {
-          return this.editor.chain().focus().deleteColumn().run()
-        }
+      // 모든 행이 선택됨 → 열 삭제
+      if (minRow === 0 && maxRow === totalRows - 1) {
+        return this.editor.chain().focus().deleteColumn().run()
       }
 
       return false
