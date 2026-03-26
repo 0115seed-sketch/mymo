@@ -2,12 +2,15 @@ import { onMount, onCleanup, Show, createSignal, createEffect } from 'solid-js'
 import { createPageStore } from './stores/pages'
 import { user, authLoading, loginWithGoogle, logout } from './stores/auth'
 import { pullFromCloud, startRealtimeSync, stopRealtimeSync } from './stores/sync'
+import { darkMode } from './stores/settings'
 import Sidebar from './components/Sidebar'
 import EditorView from './components/EditorView'
+import SettingsModal from './components/SettingsModal'
 
 function App() {
   const store = createPageStore()
   const [sidebarVisible, setSidebarVisible] = createSignal(true)
+  const [showSettings, setShowSettings] = createSignal(false)
 
   onMount(async () => {
     await store.loadAll()
@@ -34,7 +37,7 @@ function App() {
   onCleanup(() => { stopRealtimeSync() })
 
   return (
-    <div class="flex h-screen bg-white text-gray-900 overflow-hidden">
+    <div class={`flex h-screen overflow-hidden ${darkMode() ? 'bg-[#1a1b2e] text-gray-200' : 'bg-white text-gray-900'}`}>
       <Show when={sidebarVisible()}>
         <Sidebar
           folders={store.folders()}
@@ -63,7 +66,7 @@ function App() {
       {/* Sidebar show button when hidden */}
       <Show when={!sidebarVisible()}>
         <button
-          class="absolute top-3 left-3 z-50 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded px-2 py-1 text-sm cursor-pointer transition-colors"
+          class={`absolute top-3 left-3 z-50 border rounded px-2 py-1 text-sm cursor-pointer transition-colors ${darkMode() ? 'bg-gray-800 hover:bg-gray-700 border-gray-600 text-gray-200' : 'bg-gray-100 hover:bg-gray-200 border-gray-300'}`}
           onClick={() => setSidebarVisible(true)}
           title="사이드바 표시"
         >▶</button>
@@ -72,11 +75,17 @@ function App() {
       {/* 로그인/로그아웃 버튼 */}
       <Show when={!authLoading()}>
         <div class="absolute top-2 right-3 z-50 flex items-center gap-2">
+          {/* 설정 버튼 */}
+          <button
+            class={`cursor-pointer border rounded-lg px-2 py-1.5 text-xs transition-colors shadow-sm ${darkMode() ? 'bg-gray-800 border-gray-600 hover:bg-gray-700 text-gray-300' : 'bg-white border-gray-300 hover:bg-gray-50 text-gray-700'}`}
+            onClick={() => setShowSettings(true)}
+            title="설정"
+          >⚙️</button>
           <Show
             when={user()}
             fallback={
               <button
-                class="flex items-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg px-3 py-1.5 text-xs text-gray-700 cursor-pointer shadow-sm transition-colors"
+                class={`flex items-center gap-1.5 border rounded-lg px-3 py-1.5 text-xs cursor-pointer shadow-sm transition-colors ${darkMode() ? 'bg-gray-800 border-gray-600 hover:bg-gray-700 text-gray-300' : 'bg-white border-gray-300 hover:bg-gray-50 text-gray-700'}`}
                 onClick={loginWithGoogle}
                 title="Google로 동기화 로그인"
               >
@@ -87,15 +96,15 @@ function App() {
           >
             {(u) => (
               <div class="flex items-center gap-2">
-                <span class="text-xs text-gray-500 hidden sm:inline">{u().displayName}</span>
+                <span class={`text-xs hidden sm:inline ${darkMode() ? 'text-gray-400' : 'text-gray-500'}`}>{u().displayName}</span>
                 <img
                   src={u().photoURL ?? ''}
                   alt="프로필"
-                  class="w-6 h-6 rounded-full border border-gray-200"
+                  class={`w-6 h-6 rounded-full border ${darkMode() ? 'border-gray-600' : 'border-gray-200'}`}
                   title={u().email ?? ''}
                 />
                 <button
-                  class="text-xs text-gray-400 hover:text-gray-600 cursor-pointer transition-colors"
+                  class={`text-xs cursor-pointer transition-colors ${darkMode() ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}`}
                   onClick={logout}
                   title="로그아웃"
                 >로그아웃</button>
@@ -108,7 +117,7 @@ function App() {
       <Show
         when={store.currentPage()}
         fallback={
-          <div class="flex-1 flex items-center justify-center text-gray-400">
+          <div class={`flex-1 flex items-center justify-center ${darkMode() ? 'text-gray-500' : 'text-gray-400'}`}>
             페이지를 선택하거나 새로 만들어주세요
           </div>
         }
@@ -124,6 +133,8 @@ function App() {
           />
         )}
       </Show>
+
+      <SettingsModal open={showSettings()} onClose={() => setShowSettings(false)} />
     </div>
   )
 }

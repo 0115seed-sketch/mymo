@@ -3,6 +3,7 @@ import type { Component } from 'solid-js'
 import type { Editor } from '@tiptap/core'
 import EmojiPicker from './EmojiPicker'
 import { exportAsPDF, exportAsImage, exportAsMarkdown, exportAsText, backupData, restoreData } from '../utils/export'
+import { darkMode } from '../stores/settings'
 
 const TEXT_COLORS = [
   { color: '#000000', name: '검정' },
@@ -54,7 +55,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
 
   return (
     <Show when={props.editor}>
-      <div class="flex items-center gap-0.5 px-3 py-1.5 border-b border-gray-200 flex-wrap bg-white">
+      <div class={`flex items-center gap-0.5 px-3 py-1.5 border-b flex-wrap ${darkMode() ? 'border-gray-700 bg-[#1a1b2e]' : 'border-gray-200 bg-white'}`}>
         <button class="btn text-xs mr-1" onClick={() => setCollapsed(!collapsed())} title={collapsed() ? '툴바 펼치기' : '툴바 접기'}>
           {collapsed() ? '▶ 툴바' : '▼'}
         </button>
@@ -70,7 +71,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           H3
         </button>
 
-        <div class="w-px h-5 bg-gray-300 mx-1" />
+        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
 
         {/* Text formatting */}
         <button class={isActive('bold')} onClick={() => props.editor!.chain().focus().toggleBold().run()}>
@@ -89,7 +90,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           <span class="bg-yellow-200 px-0.5">H</span>
         </button>
 
-        <div class="w-px h-5 bg-gray-300 mx-1" />
+        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
 
         {/* Text color */}
         <div class="relative">
@@ -142,14 +143,14 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           </Show>
         </div>
 
-        <div class="w-px h-5 bg-gray-300 mx-1" />
+        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
 
         {/* Lists */}
         <button class={isActive('taskList')} onClick={() => props.editor!.chain().focus().toggleTaskList().run()}>
           ☑ 할일
         </button>
 
-        <div class="w-px h-5 bg-gray-300 mx-1" />
+        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
 
         {/* Link */}
         <button
@@ -168,7 +169,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           🔗 링크
         </button>
 
-        <div class="w-px h-5 bg-gray-300 mx-1" />
+        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
 
         {/* Text alignment */}
         <button class={isActive('paragraph', { textAlign: 'left' }) === 'btn btn-active' || (!props.editor?.isActive({ textAlign: 'center' }) && !props.editor?.isActive({ textAlign: 'right' })) ? 'btn btn-active' : 'btn'} onClick={() => props.editor!.chain().focus().setTextAlign('left').run()} title="왼쪽 정렬">
@@ -181,7 +182,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           ◨
         </button>
 
-        <div class="w-px h-5 bg-gray-300 mx-1" />
+        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
 
         {/* Columns */}
         <button class="btn" onClick={() => (props.editor as any)!.chain().focus().setColumns(2).run()}>
@@ -191,7 +192,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           ▐▐▐ 3열
         </button>
 
-        <div class="w-px h-5 bg-gray-300 mx-1" />
+        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
 
         {/* Table */}
         <button class="btn" onClick={() => props.editor!.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}>
@@ -230,7 +231,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           <button class="btn text-red-500" onClick={() => props.editor!.chain().focus().deleteRow().run()} title="행 삭제">행✕</button>
           <button class="btn text-red-500" onClick={() => props.editor!.chain().focus().deleteColumn().run()} title="열 삭제">열✕</button>
           <button class="btn text-red-500" onClick={() => props.editor!.chain().focus().deleteTable().run()} title="표 삭제">표✕</button>
-          <div class="w-px h-5 bg-gray-300 mx-1" />
+          <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
           <button class="btn" onClick={() => {
             const ed = props.editor!
             const { state } = ed
@@ -309,14 +310,14 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           </Show>
         </div>
 
-        <div class="w-px h-5 bg-gray-300 mx-1" />
+        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
 
         {/* Action Button */}
         <button class="btn" onClick={() => props.editor!.chain().focus().insertActionButton().run()}>
           ⚡ 버튼
         </button>
 
-        <div class="w-px h-5 bg-gray-300 mx-1" />
+        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
 
         {/* Export */}
         <div class="relative">
@@ -337,7 +338,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
               <button class="color-dropdown-item" onClick={() => { exportAsText(props.editor!, props.pageTitle || '문서'); setShowExport(false) }}>
                 <span style="font-size:1.1em">📃</span> <span>텍스트</span>
               </button>
-              <div style="border-top: 1px solid #e5e7eb; margin: 4px 0;" />
+              <div style={`border-top: 1px solid var(--border-light); margin: 4px 0;`} />
               <button class="color-dropdown-item" onClick={() => { backupData(); setShowExport(false) }}>
                 <span style="font-size:1.1em">💾</span> <span>백업 (.json)</span>
               </button>

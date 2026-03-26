@@ -1,6 +1,7 @@
 import { For, Show, createSignal } from 'solid-js'
 import type { Component } from 'solid-js'
 import type { Page, Folder } from '../db'
+import { darkMode } from '../stores/settings'
 
 interface SidebarProps {
   folders: Folder[]
@@ -56,8 +57,8 @@ const Sidebar: Component<SidebarProps> = (props) => {
         <div
           class={`group flex items-center py-1.5 mx-1 rounded cursor-pointer text-sm transition-colors ${
             props.currentPageId === p.page.id
-              ? 'bg-gray-200 font-medium'
-              : 'hover:bg-gray-100'
+              ? darkMode() ? 'bg-gray-700 font-medium' : 'bg-gray-200 font-medium'
+              : darkMode() ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
           }`}
           style={{ "padding-left": `${12 + depth * 16}px`, "padding-right": "12px" }}
           onClick={() => props.onSelectPage(p.page.id)}
@@ -71,7 +72,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
         >
           <Show when={!p.isTrash && hasChildren()}>
             <span
-              class="mr-1 text-xs select-none text-gray-400 hover:text-gray-600"
+              class={`mr-1 text-xs select-none ${darkMode() ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}`}
               onClick={(e) => { e.stopPropagation(); togglePage(p.page.id) }}
             >{isExpanded() ? '▼' : '▶'}</span>
           </Show>
@@ -143,7 +144,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
     return (
       <div>
         <div
-          class="group flex items-center px-3 py-1.5 mx-1 rounded cursor-pointer text-sm hover:bg-gray-100 transition-colors"
+          class={`group flex items-center px-3 py-1.5 mx-1 rounded cursor-pointer text-sm transition-colors ${darkMode() ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
           onClick={() => toggleFolder(f.folder.id)}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -154,7 +155,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
           <Show when={!isEditing()} fallback={
             <input
               ref={inputRef}
-              class="flex-1 text-sm border border-blue-300 rounded px-1 outline-none bg-white"
+              class={`flex-1 text-sm border rounded px-1 outline-none ${darkMode() ? 'border-blue-500 bg-gray-800 text-gray-200' : 'border-blue-300 bg-white'}`}
               value={f.folder.name}
               onBlur={(e) => {
                 props.onRenameFolder(f.folder.id, e.currentTarget.value)
@@ -222,9 +223,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
   }
 
   return (
-    <div class="w-60 h-screen bg-gray-50 border-r border-gray-200 flex flex-col flex-shrink-0">
+    <div class={`w-60 h-screen border-r flex flex-col flex-shrink-0 ${darkMode() ? 'bg-[#1e1f36] border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
       {/* Header */}
-      <div class="p-3 border-b border-gray-200 flex items-center justify-between">
+      <div class={`p-3 border-b flex items-center justify-between ${darkMode() ? 'border-gray-700' : 'border-gray-200'}`}>
         <span class="font-bold text-base">mymo</span>
         <div class="flex gap-1">
           <button
@@ -262,22 +263,22 @@ const Sidebar: Component<SidebarProps> = (props) => {
         </For>
 
         <Show when={props.folders.length === 0 && props.rootPages.length === 0}>
-          <div class="px-3 py-4 text-sm text-gray-400 text-center">
+          <div class={`px-3 py-4 text-sm text-center ${darkMode() ? 'text-gray-500' : 'text-gray-400'}`}>
             페이지가 없습니다
           </div>
         </Show>
       </div>
 
       {/* Trash section */}
-      <div class="border-t border-gray-200">
+      <div class={`border-t ${darkMode() ? 'border-gray-700' : 'border-gray-200'}`}>
         <div
-          class="flex items-center px-3 py-2 cursor-pointer hover:bg-gray-100 text-sm transition-colors"
+          class={`flex items-center px-3 py-2 cursor-pointer text-sm transition-colors ${darkMode() ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
           onClick={() => props.onToggleTrash()}
         >
           <span class="mr-1.5">🗑️</span>
           <span class="flex-1">휴지통</span>
           <Show when={props.trashedPages.length > 0}>
-            <span class="text-xs text-gray-400 mr-1">{props.trashedPages.length}</span>
+            <span class={`text-xs mr-1 ${darkMode() ? 'text-gray-500' : 'text-gray-400'}`}>{props.trashedPages.length}</span>
           </Show>
           <span class="text-xs">{props.showTrash ? '▼' : '▶'}</span>
         </div>
@@ -287,7 +288,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               {(page) => <PageItem page={page} isTrash={true} />}
             </For>
             <Show when={props.trashedPages.length === 0}>
-              <div class="px-3 py-2 text-xs text-gray-400 text-center">비어있음</div>
+              <div class={`px-3 py-2 text-xs text-center ${darkMode() ? 'text-gray-500' : 'text-gray-400'}`}>비어있음</div>
             </Show>
             <Show when={props.trashedPages.length > 0}>
               <button

@@ -17,6 +17,7 @@ import { DragHandle } from '../extensions/DragHandle'
 import { KeyboardShortcuts } from '../extensions/KeyboardShortcuts'
 import TextAlign from '@tiptap/extension-text-align'
 import Toolbar from './Toolbar'
+import { darkMode } from '../stores/settings'
 
 interface EditorViewProps {
   content: string
@@ -109,7 +110,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
           value={props.pageTitle}
           onInput={(e) => props.onTitleChange(e.currentTarget.value)}
           placeholder="제목 없음"
-          class="w-full text-3xl font-bold outline-none border-none bg-transparent"
+          class={`w-full text-3xl font-bold outline-none border-none bg-transparent ${darkMode() ? 'text-gray-100 placeholder-gray-600' : ''}`}
         />
       </div>
 
