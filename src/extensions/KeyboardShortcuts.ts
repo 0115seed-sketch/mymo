@@ -133,10 +133,8 @@ export const KeyboardShortcuts = Extension.create({
         const { selection } = state
 
         // Check if it's a CellSelection (from @tiptap/pm/tables)
-        if (selection.$anchorCell && this.editor.isActive('table')) {
-          const cellSelection = selection as any
-
-          if (cellSelection.$anchorCell) {
+        const cellSelection = selection as any
+        if (cellSelection.$anchorCell && this.editor.isActive('table')) {
             const tableStart = cellSelection.$anchorCell.start(-1)
             const tableNode = state.doc.nodeAt(tableStart - 1)
 
@@ -172,7 +170,6 @@ export const KeyboardShortcuts = Extension.create({
                 return this.editor.chain().focus().deleteTable().run()
               }
             }
-          }
         }
 
         // Default behavior for non-table or partial selection
