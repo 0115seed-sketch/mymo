@@ -65,6 +65,7 @@ function App() {
           onHideSidebar={() => setSidebarVisible(false)}
           onMovePageToFolder={(pageId: string, folderId: string | null) => store.movePageToFolder(pageId, folderId)}
           onReorderPage={(pageId: string, newIndex: number, folderId: string | null) => store.reorderPage(pageId, newIndex, folderId)}
+          onReorderFolder={(folderId: string, newIndex: number) => store.reorderFolder(folderId, newIndex)}
         />
       </Show>
 

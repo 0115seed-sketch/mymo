@@ -65,7 +65,15 @@ export function createPageStore() {
       updatedAt: now,
     }
     await db.pages.add(page)
-    await loadPages()
+    // 로컬 state만 업데이트 (전체 reload 제거)
+    setPages(prev => {
+      const updated = prev.map(p => 
+        (p.folderId === folderId && p.parentPageId === parentPageId) 
+          ? {...p, order: (p.order ?? 0) + 1} 
+          : p
+      )
+      return [page, ...updated]
+    })
     setCurrentPageId(page.id)
     // 백그라운드 클라우드 동기화 (로컬 저장 후 fire-and-forget)
     const uid = user()?.uid
@@ -76,7 +84,10 @@ export function createPageStore() {
   const updatePage = async (id: string, updates: Partial<Pick<Page, 'title' | 'content' | 'folderId'>>) => {
     const updatedAt = Date.now()
     await db.pages.update(id, { ...updates, updatedAt })
-    await loadPages()
+    // 로컬 state만 업데이트 (전체 reload 제거)
+    setPages(prev => prev.map(p => 
+      p.id === id ? {...p, ...updates, updatedAt} : p
+    ))
     // 백그라운드 클라우드 동기화
     const uid = user()?.uid
     if (uid) {
@@ -87,8 +98,12 @@ export function createPageStore() {
 
   // Soft delete → move to trash
   const trashPage = async (id: string) => {
-    await db.pages.update(id, { deleted: true, updatedAt: Date.now() })
-    await loadPages()
+    const updatedAt = Date.now()
+    await db.pages.update(id, { deleted: true, updatedAt })
+    // 로컬 state만 업데이트
+    setPages(prev => prev.map(p => 
+      p.id === id ? {...p, deleted: true, updatedAt} : p
+    ))
     if (currentPageId() === id) {
       const active = pages().filter(p => !p.deleted)
       setCurrentPageId(active.length > 0 ? active[0].id : null)
@@ -103,8 +118,12 @@ export function createPageStore() {
 
   // Restore from trash
   const restorePage = async (id: string) => {
-    await db.pages.update(id, { deleted: false, updatedAt: Date.now() })
-    await loadPages()
+    const updatedAt = Date.now()
+    await db.pages.update(id, { deleted: false, updatedAt })
+    // 로컬 state만 업데이트
+    setPages(prev => prev.map(p => 
+      p.id === id ? {...p, deleted: false, updatedAt} : p
+    ))
     const uid = user()?.uid
     if (uid) {
       const page = await db.pages.get(id)
@@ -115,9 +134,11 @@ export function createPageStore() {
   // Permanent delete
   const deletePage = async (id: string) => {
     await db.pages.delete(id)
-    await loadPages()
-    if (currentPageId() === id) {
-      const active = pages().filter(p => !p.deleted)
+    // 로컬 state만 업데이트
+    const currentId = currentPageId()
+    setPages(prev => prev.filter(p => p.id !== id))
+    if (currentId === id) {
+      const active = pages().filter(p => !p.deleted && p.id !== id)
       setCurrentPageId(active.length > 0 ? active[0].id : null)
     }
     const uid = user()?.uid
@@ -129,7 +150,8 @@ export function createPageStore() {
     const trashed = pages().filter(p => p.deleted)
     const ids = trashed.map(p => p.id)
     await db.pages.bulkDelete(ids)
-    await loadPages()
+    // 로컬 state만 업데이트
+    setPages(prev => prev.filter(p => !p.deleted))
     const uid = user()?.uid
     if (uid) ids.forEach(id => deletePageFromCloud(uid, id))
   }
@@ -144,7 +166,8 @@ export function createPageStore() {
       createdAt: Date.now(),
     }
     await db.folders.add(folder)
-    await loadFolders()
+    // 로컬 state만 업데이트
+    setFolders(prev => [...prev, folder])
     const uid = user()?.uid
     if (uid) syncFolderToCloud(uid, folder)
     return folder
@@ -152,7 +175,10 @@ export function createPageStore() {
 
   const renameFolder = async (id: string, name: string) => {
     await db.folders.update(id, { name })
-    await loadFolders()
+    // 로컬 state만 업데이트
+    setFolders(prev => prev.map(f => 
+      f.id === id ? {...f, name} : f
+    ))
     const uid = user()?.uid
     if (uid) {
       const folder = await db.folders.get(id)
@@ -167,7 +193,11 @@ export function createPageStore() {
       await db.pages.update(p.id, { folderId: null })
     }
     await db.folders.delete(id)
-    await Promise.all([loadPages(), loadFolders()])
+    // 로컬 state만 업데이트
+    setFolders(prev => prev.filter(f => f.id !== id))
+    setPages(prev => prev.map(p => 
+      p.folderId === id ? {...p, folderId: null} : p
+    ))
     const uid = user()?.uid
     if (uid) {
       deleteFolderFromCloud(uid, id)
@@ -203,15 +233,48 @@ export function createPageStore() {
         if (page) syncPageToCloud(uid, page)
       }
     }
-    await loadPages()
+    // 로컬 state만 업데이트
+    setPages(prev => prev.map(p => {
+      const idx = reordered.findIndex(r => r.id === p.id)
+      return idx !== -1 ? {...p, order: idx} : p
+    }))
+  }
+
+  // --- Reorder folders ---
+  const reorderFolder = async (folderId: string, newIndex: number) => {
+    const sorted = [...folders()].sort((a, b) => a.order - b.order)
+    const oldIndex = sorted.findIndex(f => f.id === folderId)
+    if (oldIndex === -1 || oldIndex === newIndex) return
+
+    const reordered = [...sorted]
+    const [moved] = reordered.splice(oldIndex, 1)
+    const adjustedIndex = oldIndex < newIndex ? newIndex - 1 : newIndex
+    reordered.splice(adjustedIndex, 0, moved)
+
+    const uid = user()?.uid
+    for (let i = 0; i < reordered.length; i++) {
+      await db.folders.update(reordered[i].id, { order: i })
+      if (uid) {
+        const folder = await db.folders.get(reordered[i].id)
+        if (folder) syncFolderToCloud(uid, folder)
+      }
+    }
+    setFolders(prev => prev.map(f => {
+      const idx = reordered.findIndex(r => r.id === f.id)
+      return idx !== -1 ? { ...f, order: idx } : f
+    }))
   }
 
   // Move page to folder (with order placement at end)
   const movePageToFolder = async (pageId: string, folderId: string | null) => {
     const siblings = activePages().filter(p => p.folderId === folderId && !p.parentPageId)
     const maxOrder = siblings.length > 0 ? Math.max(...siblings.map(p => p.order ?? 0)) + 1 : 0
-    await db.pages.update(pageId, { folderId, order: maxOrder, updatedAt: Date.now() })
-    await loadPages()
+    const updatedAt = Date.now()
+    await db.pages.update(pageId, { folderId, order: maxOrder, updatedAt })
+    // 로컬 state만 업데이트
+    setPages(prev => prev.map(p => 
+      p.id === pageId ? {...p, folderId, order: maxOrder, updatedAt} : p
+    ))
     const uid = user()?.uid
     if (uid) {
       const page = await db.pages.get(pageId)
@@ -244,6 +307,7 @@ export function createPageStore() {
     renameFolder,
     deleteFolder,
     reorderPage,
+    reorderFolder,
     movePageToFolder,
   }
 }

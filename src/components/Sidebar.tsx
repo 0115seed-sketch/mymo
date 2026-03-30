@@ -25,6 +25,7 @@ interface SidebarProps {
   onHideSidebar: () => void
   onMovePageToFolder: (pageId: string, folderId: string | null) => void
   onReorderPage: (pageId: string, newIndex: number, folderId: string | null) => void
+  onReorderFolder: (folderId: string, newIndex: number) => void
 }
 
 const Sidebar: Component<SidebarProps> = (props) => {
@@ -33,6 +34,8 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [editingFolderId, setEditingFolderId] = createSignal<string | null>(null)
   const [draggedPageId, setDraggedPageId] = createSignal<string | null>(null)
   const [dropTarget, setDropTarget] = createSignal<{ folderId: string | null; index: number } | null>(null)
+  const [draggedFolderId, setDraggedFolderId] = createSignal<string | null>(null)
+  const [folderDropIndex, setFolderDropIndex] = createSignal<number | null>(null)
 
   const toggleFolder = (id: string) => {
     const next = new Set(expandedFolders())
@@ -164,7 +167,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
     )
   }
 
-  const FolderItem = (f: { folder: Folder }) => {
+  const FolderItem = (f: { folder: Folder; index: number }) => {
     const isExpanded = () => expandedFolders().has(f.folder.id)
     const isEditing = () => editingFolderId() === f.folder.id
     let inputRef!: HTMLInputElement
@@ -172,14 +175,29 @@ const Sidebar: Component<SidebarProps> = (props) => {
     const handleDragOver = (e: DragEvent) => {
       e.preventDefault()
       e.dataTransfer!.dropEffect = 'move'
-      ;(e.currentTarget as HTMLElement).classList.add('bg-blue-50')
+      if (draggedFolderId()) {
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+        const midY = rect.top + rect.height / 2
+        setFolderDropIndex(e.clientY < midY ? f.index : f.index + 1)
+      } else {
+        ;(e.currentTarget as HTMLElement).classList.add('bg-blue-50')
+      }
     }
     const handleDragLeave = (e: DragEvent) => {
       ;(e.currentTarget as HTMLElement).classList.remove('bg-blue-50')
     }
     const handleDrop = (e: DragEvent) => {
       e.preventDefault()
+      e.stopPropagation()
       ;(e.currentTarget as HTMLElement).classList.remove('bg-blue-50')
+      const fId = draggedFolderId()
+      const fIdx = folderDropIndex()
+      if (fId && fIdx !== null) {
+        props.onReorderFolder(fId, fIdx)
+        setDraggedFolderId(null)
+        setFolderDropIndex(null)
+        return
+      }
       const pageId = draggedPageId()
       if (pageId) {
         props.onMovePageToFolder(pageId, f.folder.id)
@@ -187,11 +205,28 @@ const Sidebar: Component<SidebarProps> = (props) => {
       }
     }
 
+    const isFolderDropBefore = () => {
+      return draggedFolderId() && folderDropIndex() === f.index
+    }
+    const isFolderDropAfter = () => {
+      return draggedFolderId() && folderDropIndex() === f.index + 1
+    }
+
     return (
       <div>
+        <Show when={isFolderDropBefore()}>
+          <div class="h-0.5 mx-2 bg-blue-500 rounded" />
+        </Show>
         <div
           class={`group flex items-center px-3 py-1.5 mx-1 rounded cursor-pointer text-sm transition-colors ${darkMode() ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
           onClick={() => toggleFolder(f.folder.id)}
+          draggable={true}
+          onDragStart={(e) => {
+            e.stopPropagation()
+            setDraggedFolderId(f.folder.id)
+            e.dataTransfer!.effectAllowed = 'move'
+          }}
+          onDragEnd={() => { setDraggedFolderId(null); setFolderDropIndex(null) }}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -250,6 +285,9 @@ const Sidebar: Component<SidebarProps> = (props) => {
             </For>
           </div>
         </Show>
+        <Show when={isFolderDropAfter()}>
+          <div class="h-0.5 mx-2 bg-blue-500 rounded" />
+        </Show>
       </div>
     )
   }
@@ -300,7 +338,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
       >
         {/* Folders */}
         <For each={props.folders}>
-          {(folder) => <FolderItem folder={folder} />}
+          {(folder, i) => <FolderItem folder={folder} index={i()} />}
         </For>
 
         {/* Root pages (no folder) */}
