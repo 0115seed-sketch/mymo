@@ -24,21 +24,21 @@ interface SidebarProps {
 }
 
 const Sidebar: Component<SidebarProps> = (props) => {
-  const [expandedPages, setExpandedPages] = createSignal<Set<string>>(new Set())
+  const [expandedPages, setExpandedPages] = createSignal<Set<string>>(new Set<string>())
   const [searchQuery, setSearchQuery] = createSignal('')
   const [draggedPageId, setDraggedPageId] = createSignal<string | null>(null)
   const [dropIndicator, setDropIndicator] = createSignal<{ parentPageId: string | null; index: number } | null>(null)
   const [dropAsChild, setDropAsChild] = createSignal<string | null>(null)
 
   const togglePage = (id: string) => {
-    const next = new Set(expandedPages())
+    const next = new Set<string>(expandedPages())
     if (next.has(id)) next.delete(id)
     else next.add(id)
     setExpandedPages(next)
   }
 
   const collapseAll = () => {
-    setExpandedPages(new Set())
+    setExpandedPages(new Set<string>())
   }
 
   // currentPageId 변경 시 조상 경로 자동 펼침
@@ -47,7 +47,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
     if (!pageId) return
     const ancestors = props.ancestorIds(pageId)
     if (ancestors.length === 0) return
-    const next = new Set(expandedPages())
+    const next = new Set<string>(expandedPages())
     for (const aid of ancestors) next.add(aid)
     setExpandedPages(next)
   })

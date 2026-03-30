@@ -427,7 +427,6 @@ const EditorView: Component<EditorViewProps> = (props) => {
 
   // 페이지 전환 시 제목 input 동기화 (IME 중복 방지를 위해 ref 사용)
   createEffect(() => {
-    const _ = props.pageId
     if (titleInput) titleInput.value = props.pageTitle
   })
 
