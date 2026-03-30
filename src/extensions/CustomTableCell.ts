@@ -25,20 +25,20 @@ const sharedAttributes = {
     },
   },
   colwidth: {
-    default: [383],
+    default: [192],
     parseHTML: (element: HTMLElement) => {
       const w = element.getAttribute('colwidth') || element.getAttribute('data-colwidth')
       if (w) return w.split(',').map(Number)
       const sw = element.style.width
       if (sw && sw.endsWith('px')) return [parseInt(sw, 10)]
-      return null
+      return [192]
     },
     renderHTML: (attributes: Record<string, any>) => {
-      if (!attributes.colwidth) return {}
-      const w = attributes.colwidth[0]
+      const cw = attributes.colwidth || [192]
+      const w = cw[0]
       return {
-        'data-colwidth': attributes.colwidth.join(','),
-        style: `min-width: ${w}px; width: ${w}px; max-width: ${w}px`,
+        'data-colwidth': cw.join(','),
+        style: `width: ${w}px`,
       }
     },
   },

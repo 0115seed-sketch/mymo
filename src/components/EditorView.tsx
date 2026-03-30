@@ -1,6 +1,6 @@
 import { createSignal, onMount, onCleanup, createEffect } from 'solid-js'
 import type { Component } from 'solid-js'
-import { Editor } from '@tiptap/core'
+import { Editor, mergeAttributes } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import Highlight from '@tiptap/extension-highlight'
@@ -20,6 +20,26 @@ import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import Toolbar from './Toolbar'
 import { darkMode } from '../stores/settings'
+
+// ── 테이블 확장: table-layout: fixed + 동적 너비 계산 ──
+const CustomTable = Table.extend({
+  renderHTML({ node, HTMLAttributes }) {
+    let totalWidth = 0
+    const firstRow = node.firstChild
+    if (firstRow) {
+      for (let i = 0; i < firstRow.childCount; i++) {
+        const cell = firstRow.child(i)
+        const cw = cell.attrs.colwidth
+        totalWidth += (cw && cw[0]) ? cw[0] : 383
+      }
+    }
+    return ['table', mergeAttributes(
+      this.options.HTMLAttributes,
+      HTMLAttributes,
+      { style: `table-layout: fixed; width: ${totalWidth}px` }
+    ), ['tbody', 0]]
+  },
+})
 
 const EDGE_THRESHOLD = 6 // px from cell edge to trigger resize
 
@@ -260,6 +280,29 @@ const TableResize = Extension.create({
                 }
 
                 view.dispatch(transaction)
+
+                // table-layout:fixed에서 테이블 전체 width를 업데이트해야
+                // 브라우저가 다른 열을 건드리지 않음
+                if (resizing.type === 'col') {
+                  const updatedTableNode = view.state.doc.nodeAt(tablePos)
+                  if (updatedTableNode) {
+                    let totalWidth = 0
+                    const firstRow = updatedTableNode.firstChild
+                    if (firstRow) {
+                      for (let i = 0; i < firstRow.childCount; i++) {
+                        const cell = firstRow.child(i)
+                        const cw = cell.attrs.colwidth
+                        totalWidth += (cw && cw[0]) ? cw[0] : 192
+                      }
+                    }
+                    const allTables = view.dom.querySelectorAll('table')
+                    const tableEl = allTables[resizing.tableIndex] as HTMLElement
+                    if (tableEl) {
+                      tableEl.style.width = `${totalWidth}px`
+                    }
+                  }
+                }
+
                 resizing = null
               }
 
@@ -288,13 +331,17 @@ interface EditorViewProps {
   onUpdate: (content: string) => void
   onTitleChange: (title: string) => void
   onEditorReady?: (editor: Editor | null) => void
+  onCreateSubPage?: (parentPageId: string) => Promise<{ id: string; title: string; path: string } | undefined>
+  onNavigateHash?: (hash: string) => void
 }
 
 const EditorView: Component<EditorViewProps> = (props) => {
   let editorElement!: HTMLDivElement
+  let titleInput!: HTMLInputElement
   const [editor, setEditor] = createSignal<Editor | null>(null)
   const [editorVersion, setEditorVersion] = createSignal(0)
   let saveTimeout: ReturnType<typeof setTimeout> | null = null
+  let composing = false
 
   onMount(() => {
     const ed = new Editor({
@@ -302,7 +349,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
       extensions: [
         StarterKit.configure({
           heading: { levels: [1, 2, 3] },
-          link: { openOnClick: true, autolink: true },
+          link: { openOnClick: false, autolink: true },
         }),
         Placeholder.configure({
           placeholder: '여기에 입력하세요...',
@@ -316,7 +363,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
         }),
         TextStyle,
         Color,
-        Table.configure({
+        CustomTable.configure({
           resizable: false,
         }),
         TableRow,
@@ -346,6 +393,24 @@ const EditorView: Component<EditorViewProps> = (props) => {
     })
     setEditor(ed)
     props.onEditorReady?.(ed)
+
+    // 에디터 내 링크 클릭 처리: 해시 링크는 같은 탭에서 이동, 외부 링크는 새 탭
+    editorElement.addEventListener('click', (e) => {
+      const anchor = (e.target as HTMLElement).closest('a')
+      if (!anchor) return
+      const href = anchor.getAttribute('href')
+      if (!href) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (href.startsWith('#')) {
+        const hashValue = href.slice(1)
+        window.location.hash = hashValue
+        // hashchange 이벤트에 의존하지 않고 직접 네비게이션
+        props.onNavigateHash?.(hashValue)
+      } else {
+        window.open(href, '_blank', 'noopener')
+      }
+    })
   })
 
   // 페이지 변경 시에만 에디터 내용 교체 (content 변경은 무시 — 커서 리셋 방지)
@@ -360,6 +425,12 @@ const EditorView: Component<EditorViewProps> = (props) => {
     }
   })
 
+  // 페이지 전환 시 제목 input 동기화 (IME 중복 방지를 위해 ref 사용)
+  createEffect(() => {
+    const _ = props.pageId
+    if (titleInput) titleInput.value = props.pageTitle
+  })
+
   onCleanup(() => {
     if (saveTimeout) clearTimeout(saveTimeout)
     props.onEditorReady?.(null)
@@ -371,16 +442,18 @@ const EditorView: Component<EditorViewProps> = (props) => {
       {/* Title input */}
       <div class={props.sidebarVisible === false ? "px-6 pt-5 pb-1 ml-10" : "px-6 pt-5 pb-1"}>
         <input
+          ref={titleInput}
           type="text"
-          value={props.pageTitle}
-          onInput={(e) => props.onTitleChange(e.currentTarget.value)}
           placeholder="제목 없음"
+          onCompositionStart={() => { composing = true }}
+          onCompositionEnd={(e) => { composing = false; props.onTitleChange(e.currentTarget.value) }}
+          onInput={(e) => { if (!composing) props.onTitleChange(e.currentTarget.value) }}
           class={`w-full text-3xl font-bold outline-none border-none bg-transparent ${darkMode() ? 'text-gray-100 placeholder-gray-600' : ''}`}
         />
       </div>
 
       {/* Toolbar */}
-      <Toolbar editor={editor()} version={editorVersion()} pageTitle={props.pageTitle} />
+      <Toolbar editor={editor()} version={editorVersion()} pageTitle={props.pageTitle} pageId={props.pageId} onCreateSubPage={props.onCreateSubPage} />
 
       {/* Editor */}
       <div class="flex-1 overflow-y-auto px-6 py-4">

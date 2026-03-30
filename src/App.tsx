@@ -16,11 +16,38 @@ function App() {
   const [currentEditor, setCurrentEditor] = createSignal<Editor | null>(null)
   const [showExport, setShowExport] = createSignal(false)
 
+  // Hash routing: #/페이지명/하위페이지명 또는 #pageId (fallback)
+  const applyHash = () => {
+    const hash = window.location.hash.slice(1)
+    if (!hash) return
+    // 경로 방식 (#/페이지명/하위) 시도
+    if (hash.startsWith('/')) {
+      const page = store.findPageByPath(hash)
+      if (page) {
+        store.setCurrentPageId(page.id)
+        return
+      }
+    }
+    // ID fallback
+    if (store.pageById(hash)) {
+      store.setCurrentPageId(hash)
+    }
+  }
+
   onMount(async () => {
     await store.loadAll()
     if (store.activePages().length === 0) {
       await store.createPage('주간 할일')
     }
+    applyHash()
+    window.addEventListener('hashchange', applyHash)
+  })
+  onCleanup(() => window.removeEventListener('hashchange', applyHash))
+
+  // currentPageId 변경 시 hash를 페이지명 경로로 업데이트
+  createEffect(() => {
+    const id = store.currentPageId()
+    if (id) window.location.hash = store.getPagePath(id)
   })
 
   // 로그인 상태 변화 감지 → 클라우드 동기화 시작/종료
@@ -44,28 +71,23 @@ function App() {
     <div class={`flex h-screen overflow-hidden ${darkMode() ? 'bg-[#1a1b2e] text-gray-200' : 'bg-white text-gray-900'}`}>
       <Show when={sidebarVisible()}>
         <Sidebar
-          folders={store.folders()}
           rootPages={store.rootPages()}
-          pagesInFolder={(fid: string) => store.pagesInFolder(fid)}
           subPages={(pid: string) => store.subPages(pid)}
           trashedPages={store.trashedPages()}
           currentPageId={store.currentPageId()}
           showTrash={store.showTrash()}
+          pageById={(id: string) => store.pageById(id)}
+          ancestorIds={(pageId: string) => store.getAncestorIds(pageId)}
           onSelectPage={(id: string) => store.setCurrentPageId(id)}
-          onCreatePage={(folderId?: string | null) => store.createPage(undefined, folderId ?? null)}
-          onCreateSubPage={(parentPageId: string) => store.createPage('새 페이지', null, parentPageId)}
+          onCreatePage={(parentPageId?: string | null) => store.createPage('새 페이지', parentPageId ?? null)}
           onTrashPage={(id: string) => store.trashPage(id)}
           onRestorePage={(id: string) => store.restorePage(id)}
           onDeletePage={(id: string) => store.deletePage(id)}
           onEmptyTrash={() => store.emptyTrash()}
-          onCreateFolder={() => store.createFolder()}
-          onRenameFolder={(id: string, name: string) => store.renameFolder(id, name)}
-          onDeleteFolder={(id: string) => store.deleteFolder(id)}
           onToggleTrash={() => store.setShowTrash(!store.showTrash())}
           onHideSidebar={() => setSidebarVisible(false)}
-          onMovePageToFolder={(pageId: string, folderId: string | null) => store.movePageToFolder(pageId, folderId)}
-          onReorderPage={(pageId: string, newIndex: number, folderId: string | null) => store.reorderPage(pageId, newIndex, folderId)}
-          onReorderFolder={(folderId: string, newIndex: number) => store.reorderFolder(folderId, newIndex)}
+          onReorderPage={(pageId: string, newIndex: number, parentPageId: string | null) => store.reorderPage(pageId, newIndex, parentPageId)}
+          onMovePageToParent={(pageId: string, newParentPageId: string | null) => store.movePageToParent(pageId, newParentPageId)}
         />
       </Show>
 
@@ -170,6 +192,24 @@ function App() {
             onUpdate={(content) => store.updatePage(page().id, { content })}
             onTitleChange={(title) => store.updatePage(page().id, { title })}
             onEditorReady={setCurrentEditor}
+            onCreateSubPage={async (parentPageId: string) => {
+              const sub = await store.createPage('새 페이지', parentPageId, false)
+              return sub ? { id: sub.id, title: sub.title, path: store.getPagePath(sub.id) } : undefined
+            }}
+            onNavigateHash={(hash: string) => {
+              if (hash.startsWith('/')) {
+                const p = store.findPageByPath(hash)
+                if (p) { store.setCurrentPageId(p.id); return }
+              }
+              const decoded = decodeURIComponent(hash)
+              if (decoded.startsWith('/')) {
+                const p = store.findPageByPath(decoded)
+                if (p) { store.setCurrentPageId(p.id); return }
+              }
+              if (store.pageById(hash)) {
+                store.setCurrentPageId(hash)
+              }
+            }}
           />
         )}
       </Show>

@@ -31,6 +31,8 @@ interface ToolbarProps {
   editor: Editor | null
   version?: number
   pageTitle?: string
+  pageId?: string | null
+  onCreateSubPage?: (parentPageId: string) => Promise<{ id: string; title: string; path: string } | undefined>
 }
 
 const Toolbar: Component<ToolbarProps> = (props) => {
@@ -395,6 +397,24 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           <button class="btn" onClick={() => props.editor!.chain().focus().insertActionButton().run()}>
             ⚡ 버튼
           </button>
+
+          {/* Sub-page insert */}
+          <Show when={props.pageId && props.onCreateSubPage}>
+            <button class="btn" onClick={async () => {
+              const pageId = props.pageId
+              if (!pageId || !props.onCreateSubPage) return
+              const sub = await props.onCreateSubPage(pageId)
+              if (sub) {
+                props.editor!.chain().focus().insertContent({
+                  type: 'text',
+                  text: `📄 ${sub.title}`,
+                  marks: [{ type: 'link', attrs: { href: `#${sub.path}`, target: null } }],
+                }).run()
+              }
+            }}>
+              📄+ 서브페이지
+            </button>
+          </Show>
         </Show>
       </div>
     </Show>
