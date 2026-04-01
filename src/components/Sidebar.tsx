@@ -32,7 +32,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const forcedExpandedAncestors = createMemo(() => {
     const pageId = props.currentPageId
     if (!pageId) return new Set<string>()
-    return new Set<string>(props.ancestorIds(pageId))
+    return new Set<string>([...props.ancestorIds(pageId), pageId])
   })
 
   const togglePage = (id: string) => {
@@ -53,6 +53,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
     props.pageById(pageId)
     const ancestors = props.ancestorIds(pageId)
     const next = new Set<string>(expandedPages())
+    next.add(pageId)
     for (const aid of ancestors) next.add(aid)
     setExpandedPages(next)
   })
