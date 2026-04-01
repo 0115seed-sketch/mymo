@@ -40,6 +40,106 @@ export function createPageStore() {
   const currentPage = () => pages().find(p => p.id === currentPageId()) ?? null
   const pageById = (id: string) => pages().find(p => p.id === id) ?? null
 
+  // 링크가 가리키는 대상 페이지를 추정한다.
+  const resolveLinkedPageId = (href: string): string | null => {
+    if (!href || !href.startsWith('#')) return null
+    const raw = href.slice(1)
+    if (!raw) return null
+
+    const decoded = (() => {
+      try {
+        return decodeURIComponent(raw)
+      } catch {
+        return raw
+      }
+    })()
+
+    const direct = pageById(raw) ?? pageById(decoded)
+    if (direct) return direct.id
+
+    const pathCandidate = raw.startsWith('/') ? raw : (decoded.startsWith('/') ? decoded : null)
+    if (pathCandidate) {
+      const byPath = findPageByPath(pathCandidate)
+      if (byPath) return byPath.id
+    }
+
+    return null
+  }
+
+  // 제목 변경 시, 해당 페이지를 참조하는 자동 생성 링크를 ID 기반 링크로 정규화하고 라벨을 동기화.
+  const syncAutoSubPageLinks = async (targetPageId: string, targetTitle: string) => {
+    const changed = new Map<string, { content: string; updatedAt: number }>()
+
+    for (const page of pages()) {
+      if (!page.content) continue
+
+      let doc: any
+      try {
+        doc = JSON.parse(page.content)
+      } catch {
+        continue
+      }
+
+      let touched = false
+
+      const walk = (node: any) => {
+        if (!node || typeof node !== 'object') return
+
+        if (Array.isArray(node.content)) {
+          node.content.forEach(walk)
+        }
+
+        if (!Array.isArray(node.marks)) return
+
+        for (const mark of node.marks) {
+          if (!mark || mark.type !== 'link') continue
+          const href = String(mark.attrs?.href ?? '')
+          const linkedPageId = resolveLinkedPageId(href)
+          if (linkedPageId !== targetPageId) continue
+
+          if (href !== `#${targetPageId}`) {
+            mark.attrs = { ...(mark.attrs ?? {}), href: `#${targetPageId}`, target: null }
+            touched = true
+          }
+
+          if (typeof node.text === 'string' && (node.text.startsWith('📄 ') || node.text === targetTitle)) {
+            const nextText = `📄 ${targetTitle}`
+            if (node.text !== nextText) {
+              node.text = nextText
+              touched = true
+            }
+          }
+        }
+      }
+
+      walk(doc)
+
+      if (touched) {
+        const updatedAt = Date.now()
+        changed.set(page.id, { content: JSON.stringify(doc), updatedAt })
+      }
+    }
+
+    if (changed.size === 0) return
+
+    for (const [id, value] of changed) {
+      await db.pages.update(id, value)
+    }
+
+    setPages(prev => prev.map(p => {
+      const value = changed.get(p.id)
+      return value ? { ...p, content: value.content, updatedAt: value.updatedAt } : p
+    }))
+
+    const uid = user()?.uid
+    if (uid) {
+      for (const id of changed.keys()) {
+        const page = await db.pages.get(id)
+        if (page) syncPageToCloud(uid, page)
+      }
+    }
+  }
+
   // --- Page CRUD ---
   const createPage = async (title = '새 페이지', parentPageId: string | null = null, navigate = true) => {
     const now = Date.now()
@@ -83,6 +183,10 @@ export function createPageStore() {
     if (uid) {
       const page = await db.pages.get(id)
       if (page) syncPageToCloud(uid, page)
+    }
+
+    if (typeof updates.title === 'string') {
+      await syncAutoSubPageLinks(id, updates.title)
     }
   }
 

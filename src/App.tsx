@@ -176,42 +176,59 @@ function App() {
       </Show>
 
       <Show
-        when={store.currentPage()}
+        when={store.currentPageId()}
+        keyed
         fallback={
           <div class={`flex-1 flex items-center justify-center ${darkMode() ? 'text-gray-500' : 'text-gray-400'}`}>
             페이지를 선택하거나 새로 만들어주세요
           </div>
         }
       >
-        {(page) => (
-          <EditorView
-            pageId={page().id}
-            content={page().content}
-            pageTitle={page().title}
-            sidebarVisible={sidebarVisible()}
-            onUpdate={(content) => store.updatePage(page().id, { content })}
-            onTitleChange={(title) => store.updatePage(page().id, { title })}
-            onEditorReady={setCurrentEditor}
-            onCreateSubPage={async (parentPageId: string) => {
-              const sub = await store.createPage('새 페이지', parentPageId, false)
-              return sub ? { id: sub.id, title: sub.title, path: store.getPagePath(sub.id) } : undefined
-            }}
-            onNavigateHash={(hash: string) => {
-              if (hash.startsWith('/')) {
-                const p = store.findPageByPath(hash)
-                if (p) { store.setCurrentPageId(p.id); return }
-              }
-              const decoded = decodeURIComponent(hash)
-              if (decoded.startsWith('/')) {
-                const p = store.findPageByPath(decoded)
-                if (p) { store.setCurrentPageId(p.id); return }
-              }
-              if (store.pageById(hash)) {
-                store.setCurrentPageId(hash)
-              }
-            }}
-          />
-        )}
+        {(pageId) => {
+          const page = () => store.pageById(pageId)
+          return (
+            <Show when={page()}>
+              {(p) => (
+                <EditorView
+                  pageId={p().id}
+                  content={p().content}
+                  pageTitle={p().title}
+                  pagePath={store.getPagePath(p().id)}
+                  breadcrumbs={[...store.getAncestorIds(p().id), p().id].map((id) => {
+                    const node = store.pageById(id)
+                    return {
+                      id,
+                      title: node?.title || '제목 없음',
+                      path: store.getPagePath(id),
+                    }
+                  })}
+                  sidebarVisible={sidebarVisible()}
+                  onUpdate={(content) => store.updatePage(p().id, { content })}
+                  onTitleChange={(title) => store.updatePage(p().id, { title })}
+                  onEditorReady={setCurrentEditor}
+                  onCreateSubPage={async (parentPageId: string) => {
+                    const sub = await store.createPage('새 페이지', parentPageId, false)
+                    return sub ? { id: sub.id, title: sub.title, path: store.getPagePath(sub.id) } : undefined
+                  }}
+                  onNavigateHash={(hash: string) => {
+                    if (hash.startsWith('/')) {
+                      const found = store.findPageByPath(hash)
+                      if (found) { store.setCurrentPageId(found.id); return }
+                    }
+                    const decoded = decodeURIComponent(hash)
+                    if (decoded.startsWith('/')) {
+                      const found = store.findPageByPath(decoded)
+                      if (found) { store.setCurrentPageId(found.id); return }
+                    }
+                    if (store.pageById(hash)) {
+                      store.setCurrentPageId(hash)
+                    }
+                  }}
+                />
+              )}
+            </Show>
+          )
+        }}
       </Show>
 
       <SettingsModal open={showSettings()} onClose={() => setShowSettings(false)} />

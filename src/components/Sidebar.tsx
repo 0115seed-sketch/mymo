@@ -29,6 +29,11 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [draggedPageId, setDraggedPageId] = createSignal<string | null>(null)
   const [dropIndicator, setDropIndicator] = createSignal<{ parentPageId: string | null; index: number } | null>(null)
   const [dropAsChild, setDropAsChild] = createSignal<string | null>(null)
+  const forcedExpandedAncestors = createMemo(() => {
+    const pageId = props.currentPageId
+    if (!pageId) return new Set<string>()
+    return new Set<string>(props.ancestorIds(pageId))
+  })
 
   const togglePage = (id: string) => {
     const next = new Set<string>(expandedPages())
@@ -45,8 +50,8 @@ const Sidebar: Component<SidebarProps> = (props) => {
   createEffect(() => {
     const pageId = props.currentPageId
     if (!pageId) return
+    props.pageById(pageId)
     const ancestors = props.ancestorIds(pageId)
-    if (ancestors.length === 0) return
     const next = new Set<string>(expandedPages())
     for (const aid of ancestors) next.add(aid)
     setExpandedPages(next)
@@ -93,7 +98,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const PageItem = (p: { page: Page; depth?: number; index: number; parentPageId: string | null }) => {
     const children = () => props.subPages(p.page.id)
     const hasChildren = () => children().length > 0
-    const isExpanded = () => expandedPages().has(p.page.id)
+    const isExpanded = () => expandedPages().has(p.page.id) || forcedExpandedAncestors().has(p.page.id)
     const depth = p.depth ?? 0
 
     const handleDragOver = (e: DragEvent) => {

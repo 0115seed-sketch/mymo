@@ -1,4 +1,4 @@
-import { createSignal, onMount, onCleanup, createEffect } from 'solid-js'
+import { createSignal, onMount, onCleanup, createEffect, For, Show } from 'solid-js'
 import type { Component } from 'solid-js'
 import { Editor, mergeAttributes } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
@@ -327,6 +327,8 @@ interface EditorViewProps {
   content: string
   pageId: string | null
   pageTitle: string
+  pagePath?: string
+  breadcrumbs?: Array<{ id: string; title: string; path: string }>
   sidebarVisible?: boolean
   onUpdate: (content: string) => void
   onTitleChange: (title: string) => void
@@ -340,8 +342,16 @@ const EditorView: Component<EditorViewProps> = (props) => {
   let titleInput!: HTMLInputElement
   const [editor, setEditor] = createSignal<Editor | null>(null)
   const [editorVersion, setEditorVersion] = createSignal(0)
+  const [titleDraft, setTitleDraft] = createSignal('')
   let saveTimeout: ReturnType<typeof setTimeout> | null = null
   let composing = false
+
+  const commitTitle = () => {
+    const next = titleInput?.value ?? titleDraft()
+    if (next !== props.pageTitle) {
+      props.onTitleChange(next)
+    }
+  }
 
   onMount(() => {
     const ed = new Editor({
@@ -427,7 +437,9 @@ const EditorView: Component<EditorViewProps> = (props) => {
 
   // 페이지 전환 시 제목 input 동기화 (IME 중복 방지를 위해 ref 사용)
   createEffect(() => {
-    if (titleInput) titleInput.value = props.pageTitle
+    const next = props.pageTitle
+    setTitleDraft(next)
+    if (titleInput && titleInput.value !== next) titleInput.value = next
   })
 
   onCleanup(() => {
@@ -440,13 +452,42 @@ const EditorView: Component<EditorViewProps> = (props) => {
     <div class="flex-1 flex flex-col min-w-0 h-screen">
       {/* Title input */}
       <div class={props.sidebarVisible === false ? "px-6 pt-5 pb-1 ml-10" : "px-6 pt-5 pb-1"}>
+        <Show when={props.breadcrumbs && props.breadcrumbs!.length > 0}>
+          <div class={`mb-1 text-xs ${darkMode() ? 'text-gray-400' : 'text-gray-500'} select-none`}>
+            <span>#</span>
+            <For each={props.breadcrumbs ?? []}>
+              {(crumb) => (
+                <>
+                  <a
+                    href={`#${crumb.path}`}
+                    class={`hover:underline ${darkMode() ? 'hover:text-gray-200' : 'hover:text-gray-700'}`}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      const hashValue = crumb.path.startsWith('/') ? crumb.path : `/${crumb.path}`
+                      window.location.hash = hashValue
+                      props.onNavigateHash?.(hashValue)
+                    }}
+                  >
+                    /{crumb.title || '제목 없음'}
+                  </a>
+                </>
+              )}
+            </For>
+          </div>
+        </Show>
         <input
           ref={titleInput}
           type="text"
           placeholder="제목 없음"
           onCompositionStart={() => { composing = true }}
-          onCompositionEnd={(e) => { composing = false; props.onTitleChange(e.currentTarget.value) }}
-          onInput={(e) => { if (!composing) props.onTitleChange(e.currentTarget.value) }}
+          onCompositionEnd={(e) => { composing = false; setTitleDraft(e.currentTarget.value) }}
+          onInput={(e) => { setTitleDraft(e.currentTarget.value) }}
+          onBlur={commitTitle}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !composing) {
+              e.currentTarget.blur()
+            }
+          }}
           class={`w-full text-3xl font-bold outline-none border-none bg-transparent ${darkMode() ? 'text-gray-100 placeholder-gray-600' : ''}`}
         />
       </div>

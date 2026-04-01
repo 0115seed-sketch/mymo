@@ -56,6 +56,18 @@ const Toolbar: Component<ToolbarProps> = (props) => {
   const groupBtnClass = (open: boolean) =>
     `btn font-medium ${open ? (darkMode() ? '!bg-[#3d3f5c] !text-white' : '!bg-gray-200') : ''}`
 
+  const normalizeHref = (input: string) => {
+    const trimmed = input.trim()
+    if (!trimmed) return ''
+
+    if (trimmed.startsWith('#')) return trimmed
+    if (trimmed.startsWith('/')) return `#${trimmed}`
+    if (/^(https?:|mailto:|tel:)/i.test(trimmed)) return trimmed
+    if (/^[\w.-]+\.[a-z]{2,}(?:[/?#].*)?$/i.test(trimmed)) return `https://${trimmed}`
+
+    return trimmed
+  }
+
   return (
     <Show when={props.editor}>
       <div class={`flex items-center gap-0.5 px-3 py-1.5 border-b flex-wrap ${darkMode() ? 'border-gray-700 bg-[#1a1b2e]' : 'border-gray-200 bg-white'}`}>
@@ -184,11 +196,30 @@ const Toolbar: Component<ToolbarProps> = (props) => {
             class={isActive('link')}
             onClick={() => {
               if (props.editor!.isActive('link')) {
-                props.editor!.chain().focus().unsetLink().run()
+                const currentHref = String(props.editor!.getAttributes('link').href ?? '')
+                const nextHref = window.prompt('링크를 수정하세요. 비워두면 링크가 삭제됩니다:', currentHref)
+                if (nextHref === null) return
+
+                const trimmed = nextHref.trim()
+                if (!trimmed) {
+                  props.editor!.chain().focus().unsetLink().run()
+                } else {
+                  const normalized = normalizeHref(trimmed)
+                  props.editor!.chain().focus().setLink({
+                    href: normalized,
+                    target: normalized.startsWith('#') ? null : '_blank',
+                  }).run()
+                }
               } else {
                 const url = window.prompt('URL을 입력하세요:')
                 if (url) {
-                  props.editor!.chain().focus().setLink({ href: url }).run()
+                  const trimmed = url.trim()
+                  if (!trimmed) return
+                  const normalized = normalizeHref(trimmed)
+                  props.editor!.chain().focus().setLink({
+                    href: normalized,
+                    target: normalized.startsWith('#') ? null : '_blank',
+                  }).run()
                 }
               }
             }}
@@ -408,7 +439,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
                 props.editor!.chain().focus().insertContent({
                   type: 'text',
                   text: `📄 ${sub.title}`,
-                  marks: [{ type: 'link', attrs: { href: `#${sub.path}`, target: null } }],
+                  marks: [{ type: 'link', attrs: { href: `#${sub.id}`, target: null } }],
                 }).run()
               }
             }}>

@@ -68,6 +68,33 @@ export const KeyboardShortcuts = Extension.create({
     }
 
     return {
+      // Ctrl/Cmd+K: 링크 빠른 추가/수정/삭제
+      'Mod-k': () => {
+        const editor = this.editor
+        const isLink = editor.isActive('link')
+        const currentHref = isLink ? String(editor.getAttributes('link').href ?? '') : ''
+        const input = window.prompt(
+          isLink
+            ? '링크를 수정하세요. 비워두면 삭제됩니다:'
+            : '링크를 입력하세요:',
+          currentHref,
+        )
+        if (input === null) return true
+
+        const trimmed = input.trim()
+        if (!trimmed) {
+          return editor.chain().focus().unsetLink().run()
+        }
+
+        let href = trimmed
+        if (href.startsWith('/')) href = `#${href}`
+        else if (!href.startsWith('#') && !/^(https?:|mailto:|tel:)/i.test(href) && /^[\w.-]+\.[a-z]{2,}(?:[/?#].*)?$/i.test(href)) {
+          href = `https://${href}`
+        }
+
+        return editor.chain().focus().setLink({ href, target: href.startsWith('#') ? null : '_blank' }).run()
+      },
+
       // Ctrl+A: 점진적 블록 단위 선택
       // 1차: 현재 셀/열/토글 내용 선택
       // 2차: 표/멀티열/토글 전체 선택
