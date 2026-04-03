@@ -191,6 +191,11 @@ const Toolbar: Component<ToolbarProps> = (props) => {
             ☑ 할일
           </button>
 
+          {/* Code block */}
+          <button class={isActive('codeBlock')} onClick={() => props.editor!.chain().focus().toggleCodeBlock().run()}>
+            {'</>'} 코드
+          </button>
+
           {/* Link */}
           <button
             class={isActive('link')}

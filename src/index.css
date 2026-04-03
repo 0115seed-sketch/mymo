@@ -184,11 +184,37 @@ body {
 }
 
 .editor-content .tiptap pre {
+  position: relative;
   background: var(--bg-pre);
   color: var(--text-pre);
   padding: 1em;
   border-radius: 6px;
   overflow-x: auto;
+}
+
+.editor-content .tiptap .code-copy-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: 1px solid var(--border-medium);
+  background: color-mix(in oklab, var(--bg-secondary) 80%, transparent);
+  color: var(--text-btn);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+
+.editor-content .tiptap .code-copy-button:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-tertiary);
+}
+
+.editor-content .tiptap .code-copy-button:active {
+  transform: scale(0.97);
 }
 
 .editor-content .tiptap pre code {

@@ -15,6 +15,7 @@ import { MultiColumn, Column } from '../extensions/MultiColumn'
 import { ActionButton } from '../extensions/ActionButton'
 import { DragHandle } from '../extensions/DragHandle'
 import { KeyboardShortcuts } from '../extensions/KeyboardShortcuts'
+import { CodeBlockCopyButton } from '../extensions/CodeBlockCopyButton'
 import TextAlign from '@tiptap/extension-text-align'
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
@@ -384,6 +385,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
         ActionButton,
         DragHandle,
         KeyboardShortcuts,
+        CodeBlockCopyButton,
         TextAlign.configure({
           types: ['heading', 'paragraph'],
         }),
