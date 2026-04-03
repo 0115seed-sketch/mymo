@@ -103,6 +103,21 @@ export const KeyboardShortcuts = Extension.create({
         const { state } = this.editor
         const { from, to, $from } = state.selection
 
+        // 코드블럭 내부에서는 문서 전체가 아닌 현재 코드블럭 내용만 선택
+        if (this.editor.isActive('codeBlock')) {
+          for (let depth = $from.depth; depth >= 1; depth--) {
+            const node = $from.node(depth)
+            if (node.type.name !== 'codeBlock') continue
+
+            const start = $from.start(depth)
+            const end = $from.end(depth)
+            this.editor.view.dispatch(
+              state.tr.setSelection(TextSelection.create(state.doc, start, end))
+            )
+            return true
+          }
+        }
+
         for (let depth = $from.depth; depth >= 1; depth--) {
           const node = $from.node(depth)
           if (!BLOCK_CONTAINERS.includes(node.type.name)) continue
