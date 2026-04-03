@@ -1,8 +1,6 @@
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 
-const BUTTON_SELECTOR = 'button[data-code-copy-button="true"]'
-
 const copyText = async (text: string) => {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text)
@@ -21,22 +19,6 @@ const copyText = async (text: string) => {
   document.body.removeChild(textarea)
 }
 
-const decorateCodeBlocks = (root: HTMLElement) => {
-  const codeBlocks = root.querySelectorAll('pre')
-
-  codeBlocks.forEach((pre) => {
-    if (pre.querySelector(BUTTON_SELECTOR)) return
-
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.className = 'code-copy-button'
-    button.setAttribute('data-code-copy-button', 'true')
-    button.setAttribute('contenteditable', 'false')
-    button.textContent = '복사'
-    pre.appendChild(button)
-  })
-}
-
 export const CodeBlockCopyButton = Extension.create({
   name: 'codeBlockCopyButton',
 
@@ -45,44 +27,114 @@ export const CodeBlockCopyButton = Extension.create({
       new Plugin({
         key: new PluginKey('codeBlockCopyButton'),
         view: (view) => {
-          const updateButtons = () => decorateCodeBlocks(view.dom as HTMLElement)
+          const button = document.createElement('button')
+          button.type = 'button'
+          button.className = 'code-copy-button'
+          button.textContent = '📋'
+          button.title = '코드 복사'
+          button.setAttribute('aria-label', '코드 복사')
+          button.style.position = 'fixed'
+          button.style.display = 'none'
+          button.style.zIndex = '120'
+          button.setAttribute('contenteditable', 'false')
+          document.body.appendChild(button)
 
-          const onClick = async (event: Event) => {
+          let activePre: HTMLElement | null = null
+          let hideTimer: number | null = null
+
+          const placeButton = (pre: HTMLElement) => {
+            const rect = pre.getBoundingClientRect()
+            button.style.left = `${Math.max(8, rect.right - 64)}px`
+            button.style.top = `${Math.max(8, rect.top + 8)}px`
+            button.style.display = 'inline-flex'
+          }
+
+          const hideButton = () => {
+            activePre = null
+            button.style.display = 'none'
+          }
+
+          const onMouseMove = (event: MouseEvent) => {
             const target = event.target as HTMLElement | null
-            const button = target?.closest(BUTTON_SELECTOR) as HTMLButtonElement | null
-            if (!button) return
+            const pre = target?.closest('pre') as HTMLElement | null
+            if (!pre || !view.dom.contains(pre)) {
+              if (button.matches(':hover')) return
+              hideButton()
+              return
+            }
 
+            activePre = pre
+            placeButton(pre)
+          }
+
+          const onMouseLeaveEditor = () => {
+            if (button.matches(':hover')) return
+            hideButton()
+          }
+
+          const onWindowScroll = () => {
+            if (activePre) placeButton(activePre)
+          }
+
+          const onButtonMouseLeave = () => {
+            hideTimer = window.setTimeout(() => {
+              if (!button.matches(':hover')) hideButton()
+            }, 120)
+          }
+
+          const onButtonMouseEnter = () => {
+            if (hideTimer) {
+              window.clearTimeout(hideTimer)
+              hideTimer = null
+            }
+          }
+
+          const onClickButton = async (event: Event) => {
             event.preventDefault()
             event.stopPropagation()
+            if (!activePre) return
 
-            const pre = button.closest('pre')
-            const code = pre?.querySelector('code')
-            const text = code?.textContent ?? pre?.textContent ?? ''
-            const cleanText = text.replace(/\n?복사됨?$/, '').trimEnd()
+            const code = activePre.querySelector('code')
+            const text = code?.textContent ?? activePre.textContent ?? ''
 
             try {
-              await copyText(cleanText)
-              button.textContent = '복사됨'
+              await copyText(text.trimEnd())
+              button.textContent = '✅'
               window.setTimeout(() => {
-                button.textContent = '복사'
+                button.textContent = '📋'
               }, 1200)
             } catch {
-              button.textContent = '실패'
+              button.textContent = '⚠️'
               window.setTimeout(() => {
-                button.textContent = '복사'
+                button.textContent = '📋'
               }, 1200)
             }
           }
 
-          updateButtons()
-          view.dom.addEventListener('click', onClick)
+          view.dom.addEventListener('mousemove', onMouseMove)
+          view.dom.addEventListener('mouseleave', onMouseLeaveEditor)
+          window.addEventListener('scroll', onWindowScroll, true)
+          button.addEventListener('click', onClickButton)
+          button.addEventListener('mouseenter', onButtonMouseEnter)
+          button.addEventListener('mouseleave', onButtonMouseLeave)
 
           return {
             update: () => {
-              updateButtons()
+              if (activePre && !view.dom.contains(activePre)) {
+                hideButton()
+              } else if (activePre) {
+                placeButton(activePre)
+              }
             },
             destroy: () => {
-              view.dom.removeEventListener('click', onClick)
+              view.dom.removeEventListener('mousemove', onMouseMove)
+              view.dom.removeEventListener('mouseleave', onMouseLeaveEditor)
+              window.removeEventListener('scroll', onWindowScroll, true)
+              button.removeEventListener('click', onClickButton)
+              button.removeEventListener('mouseenter', onButtonMouseEnter)
+              button.removeEventListener('mouseleave', onButtonMouseLeave)
+              if (hideTimer) window.clearTimeout(hideTimer)
+              button.remove()
             },
           }
         },
