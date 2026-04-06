@@ -7,8 +7,7 @@ import { Color } from '@tiptap/extension-color'
 import { TextStyle } from '@tiptap/extension-text-style'
 import { Table } from '@tiptap/extension-table'
 import { TableRow } from '@tiptap/extension-table-row'
-import { TableCell } from '@tiptap/extension-table-cell'
-import { TableHeader } from '@tiptap/extension-table-header'
+import { CustomTableCell, CustomTableHeader } from './CustomTableCell'
 import TextAlign from '@tiptap/extension-text-align'
 import { type NodeViewRendererProps } from '@tiptap/core'
 
@@ -192,36 +191,8 @@ export const ActionButton = Node.create({
             Color.configure(),
             Table.configure({ resizable: true }),
             TableRow.configure(),
-            TableCell.configure().extend({
-              addAttributes() {
-                return {
-                  ...this.parent?.(),
-                  backgroundColor: {
-                    default: '',
-                    parseHTML: (el: HTMLElement) => el.style.backgroundColor || '',
-                    renderHTML: (attrs: Record<string, any>) => {
-                      if (!attrs.backgroundColor) return {}
-                      return { style: `background-color: ${attrs.backgroundColor}` }
-                    },
-                  },
-                }
-              },
-            }),
-            TableHeader.configure().extend({
-              addAttributes() {
-                return {
-                  ...this.parent?.(),
-                  backgroundColor: {
-                    default: '',
-                    parseHTML: (el: HTMLElement) => el.style.backgroundColor || '',
-                    renderHTML: (attrs: Record<string, any>) => {
-                      if (!attrs.backgroundColor) return {}
-                      return { style: `background-color: ${attrs.backgroundColor}` }
-                    },
-                  },
-                }
-              },
-            }),
+            CustomTableCell,
+            CustomTableHeader,
             Node.create({
               name: 'multiColumn',
               group: 'block',

@@ -31,7 +31,7 @@ const CustomTable = Table.extend({
       for (let i = 0; i < firstRow.childCount; i++) {
         const cell = firstRow.child(i)
         const cw = cell.attrs.colwidth
-        totalWidth += (cw && cw[0]) ? cw[0] : 383
+        totalWidth += (cw && cw[0]) ? cw[0] : 192
       }
     }
     return ['table', mergeAttributes(
