@@ -245,6 +245,35 @@ const Toolbar: Component<ToolbarProps> = (props) => {
             </Show>
           </div>
 
+          {/* Image upload */}
+          <button
+            class="btn"
+            title="이미지 삽입"
+            onClick={() => {
+              const input = document.createElement('input')
+              input.type = 'file'
+              input.accept = 'image/*'
+              input.multiple = true
+              input.onchange = () => {
+                const files = Array.from(input.files ?? [])
+                files.forEach((file) => {
+                  const reader = new FileReader()
+                  reader.onload = () => {
+                    const src = reader.result as string
+                    ;(props.editor as any)!.chain().focus().insertContent({
+                      type: 'imageBlock',
+                      attrs: { src },
+                    }).run()
+                  }
+                  reader.readAsDataURL(file)
+                })
+              }
+              input.click()
+            }}
+          >
+            🖼 이미지
+          </button>
+
           <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
 
           {/* Columns */}

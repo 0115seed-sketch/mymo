@@ -16,10 +16,12 @@ import { ActionButton } from '../extensions/ActionButton'
 import { DragHandle } from '../extensions/DragHandle'
 import { KeyboardShortcuts } from '../extensions/KeyboardShortcuts'
 import { CodeBlockCopyButton } from '../extensions/CodeBlockCopyButton'
+import { ImageBlock } from '../extensions/ImageBlock'
 import TextAlign from '@tiptap/extension-text-align'
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import Toolbar from './Toolbar'
+import CropModal from './CropModal'
 import { darkMode } from '../stores/settings'
 
 // ── 테이블 확장: table-layout: fixed + 동적 너비 계산 ──
@@ -344,6 +346,8 @@ const EditorView: Component<EditorViewProps> = (props) => {
   const [editor, setEditor] = createSignal<Editor | null>(null)
   const [editorVersion, setEditorVersion] = createSignal(0)
   const [titleDraft, setTitleDraft] = createSignal('')
+  const [cropSrc, setCropSrc] = createSignal<string | null>(null)
+  let cropNodePos: number | null = null
   let saveTimeout: ReturnType<typeof setTimeout> | null = null
   let composing = false
 
@@ -386,6 +390,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
         DragHandle,
         KeyboardShortcuts,
         CodeBlockCopyButton,
+        ImageBlock,
         TextAlign.configure({
           types: ['heading', 'paragraph'],
         }),
@@ -405,6 +410,15 @@ const EditorView: Component<EditorViewProps> = (props) => {
     })
     setEditor(ed)
     props.onEditorReady?.(ed)
+
+    // image-block:crop 이벤트 수신
+    const onCropEvent = (e: Event) => {
+      const { src, pos } = (e as CustomEvent).detail as { src: string; pos: number }
+      cropNodePos = pos
+      setCropSrc(src)
+    }
+    document.addEventListener('image-block:crop', onCropEvent)
+    onCleanup(() => document.removeEventListener('image-block:crop', onCropEvent))
 
     // 에디터 내 링크 클릭 처리: 해시 링크는 같은 탭에서 이동, 외부 링크는 새 탭
     editorElement.addEventListener('click', (e) => {
@@ -501,6 +515,25 @@ const EditorView: Component<EditorViewProps> = (props) => {
       <div class="flex-1 overflow-y-auto px-6 py-4">
         <div ref={editorElement} class="editor-content max-w-none prose" />
       </div>
+
+      {/* Crop Modal */}
+      <Show when={cropSrc()}>
+        <CropModal
+          src={cropSrc()!}
+          onClose={() => setCropSrc(null)}
+          onConfirm={(croppedDataUrl) => {
+            const ed = editor()
+            if (ed && cropNodePos != null) {
+              const tr = ed.state.tr.setNodeMarkup(cropNodePos, undefined, {
+                ...ed.state.doc.nodeAt(cropNodePos)?.attrs,
+                src: croppedDataUrl,
+              })
+              ed.view.dispatch(tr)
+            }
+            setCropSrc(null)
+          }}
+        />
+      </Show>
     </div>
   )
 }

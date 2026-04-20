@@ -133,6 +133,94 @@ body {
   cursor: grabbing;
 }
 
+/* ── ImageBlock ── */
+.image-block {
+  display: block;
+  margin: 0.5em 0;
+  line-height: 0;
+}
+
+/* inner는 이미지 크기에 맞게 줄어드는 inline-block — 핸들 기준점 */
+.image-block__inner {
+  display: inline-block;
+  position: relative;
+  line-height: 0;
+}
+
+.image-block[data-align='center'] {
+  text-align: center;
+}
+
+.image-block[data-align='right'] {
+  text-align: right;
+}
+
+.image-block__img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  cursor: default;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition: outline-color 0.15s;
+}
+
+/* ProseMirror가 노드를 선택했을 때 하이라이트 */
+.ProseMirror-selectednode .image-block__img {
+  outline-color: #3b82f6;
+}
+
+/* ── 리사이즈 핸들 ── */
+
+.image-resize-handle {
+  display: none;
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: #3b82f6;
+  border: 2px solid #fff;
+  border-radius: 2px;
+  z-index: 10;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+/* 선택된 노드에서만 핸들 표시 */
+.ProseMirror-selectednode .image-resize-handle {
+  display: block;
+}
+
+.image-resize-handle--nw { top: -5px;    left: -5px;    cursor: nw-resize; }
+.image-resize-handle--ne { top: -5px;    right: -5px;   cursor: ne-resize; }
+.image-resize-handle--sw { bottom: -5px; left: -5px;    cursor: sw-resize; }
+.image-resize-handle--se { bottom: -5px; right: -5px;   cursor: se-resize; }
+
+/* ── 이미지 편집(자르기) 버튼 ── */
+.image-edit-btn {
+  display: none;
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+  background: rgba(30, 30, 50, 0.85);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  z-index: 11;
+  white-space: nowrap;
+  backdrop-filter: blur(2px);
+}
+
+.image-edit-btn:hover {
+  background: #3b82f6;
+}
+
+.ProseMirror-selectednode .image-edit-btn {
+  display: block;
+}
+
 .editor-content .tiptap > * + * {
   margin-top: 0.5em;
 }
