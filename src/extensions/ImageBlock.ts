@@ -3,6 +3,7 @@ import { Plugin, PluginKey } from '@tiptap/pm/state'
 import type { NodeView } from '@tiptap/pm/view'
 import type { Node as PmNode } from '@tiptap/pm/model'
 import type { EditorView as PmView } from '@tiptap/pm/view'
+import { fileToOptimizedDataUrl } from '../utils/image'
 
 /**
  * ImageBlock — 블록 레벨 이미지 확장
@@ -211,14 +212,19 @@ export const ImageBlock = Image.extend({
                 event.preventDefault()
                 const file = item.getAsFile()
                 if (!file) continue
-                readFileAsBase64(file).then((src) => {
-                  const { schema } = view.state
-                  const nodeType = schema.nodes.imageBlock
-                  if (!nodeType) return
-                  const node = nodeType.create({ src })
-                  const tr = view.state.tr.replaceSelectionWith(node)
-                  view.dispatch(tr)
-                })
+                void fileToOptimizedDataUrl(file)
+                  .then((src) => {
+                    const { schema } = view.state
+                    const nodeType = schema.nodes.imageBlock
+                    if (!nodeType) return
+                    const node = nodeType.create({ src })
+                    const tr = view.state.tr.replaceSelectionWith(node)
+                    view.dispatch(tr)
+                  })
+                  .catch((err) => {
+                    const message = err instanceof Error ? err.message : '이미지를 삽입할 수 없습니다.'
+                    alert(message)
+                  })
                 return true
               }
             }
@@ -237,17 +243,24 @@ export const ImageBlock = Image.extend({
             const coords = { left: event.clientX, top: event.clientY }
             const pos = view.posAtCoords(coords)?.pos ?? view.state.doc.content.size
 
-            imageFiles.forEach((file, i) => {
-              readFileAsBase64(file).then((src) => {
-                const { schema } = view.state
-                const nodeType = schema.nodes.imageBlock
-                if (!nodeType) return
-                const node = nodeType.create({ src })
-                const insertPos = pos + i
-                const tr = view.state.tr.insert(insertPos, node)
-                view.dispatch(tr)
-              })
-            })
+            void (async () => {
+              let insertPos = pos
+              for (const file of imageFiles) {
+                try {
+                  const src = await fileToOptimizedDataUrl(file)
+                  const { schema } = view.state
+                  const nodeType = schema.nodes.imageBlock
+                  if (!nodeType) continue
+                  const node = nodeType.create({ src })
+                  const tr = view.state.tr.insert(insertPos, node)
+                  view.dispatch(tr)
+                  insertPos += node.nodeSize
+                } catch (err) {
+                  const message = err instanceof Error ? err.message : '이미지를 삽입할 수 없습니다.'
+                  alert(message)
+                }
+              }
+            })()
             return true
           },
         },
@@ -255,12 +268,3 @@ export const ImageBlock = Image.extend({
     ]
   },
 })
-
-function readFileAsBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}

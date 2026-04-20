@@ -349,6 +349,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
   const [cropSrc, setCropSrc] = createSignal<string | null>(null)
   let cropNodePos: number | null = null
   let saveTimeout: ReturnType<typeof setTimeout> | null = null
+  let selectionUpdateRaf: number | null = null
   let composing = false
 
   const commitTitle = () => {
@@ -405,7 +406,11 @@ const EditorView: Component<EditorViewProps> = (props) => {
         }, 300)
       },
       onSelectionUpdate: () => {
-        setEditorVersion(v => v + 1)
+        if (selectionUpdateRaf != null) return
+        selectionUpdateRaf = requestAnimationFrame(() => {
+          selectionUpdateRaf = null
+          setEditorVersion(v => v + 1)
+        })
       },
     })
     setEditor(ed)
@@ -460,6 +465,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
 
   onCleanup(() => {
     if (saveTimeout) clearTimeout(saveTimeout)
+    if (selectionUpdateRaf != null) cancelAnimationFrame(selectionUpdateRaf)
     props.onEditorReady?.(null)
     editor()?.destroy()
   })

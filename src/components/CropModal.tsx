@@ -16,6 +16,7 @@ const CropModal: Component<CropModalProps> = (props) => {
 
   const [crop, setCrop] = createSignal({ x: 0, y: 0, w: 0, h: 0 })
   const [imgLoaded, setImgLoaded] = createSignal(false)
+  const [processing, setProcessing] = createSignal(false)
 
   onMount(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') props.onClose() }
@@ -87,7 +88,18 @@ const CropModal: Component<CropModalProps> = (props) => {
     document.addEventListener('mouseup', onUp)
   }
 
-  const onConfirm = () => {
+  const blobToDataUrl = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = reject
+      reader.readAsDataURL(blob)
+    })
+  }
+
+  const onConfirm = async () => {
+    if (processing()) return
+
     const c = crop()
     if (c.w < 4 || c.h < 4) return
 
@@ -104,7 +116,19 @@ const CropModal: Component<CropModalProps> = (props) => {
     const off = document.createElement('canvas')
     off.width = sw; off.height = sh
     off.getContext('2d')!.drawImage(imgRef, sx, sy, sw, sh, 0, 0, sw, sh)
-    props.onConfirm(off.toDataURL('image/png'))
+
+    setProcessing(true)
+    try {
+      const blob = await new Promise<Blob | null>((resolve) => off.toBlob(resolve, 'image/png'))
+      if (!blob) {
+        alert('이미지 자르기 처리 중 오류가 발생했습니다.')
+        return
+      }
+      const dataUrl = await blobToDataUrl(blob)
+      props.onConfirm(dataUrl)
+    } finally {
+      setProcessing(false)
+    }
   }
 
   const c = () => crop()
@@ -178,7 +202,9 @@ const CropModal: Component<CropModalProps> = (props) => {
 
         <div class={`flex justify-end gap-2 px-4 py-3 border-t flex-shrink-0 ${darkMode() ? 'border-gray-700' : 'border-gray-200'}`}>
           <button class="btn" onClick={props.onClose}>취소</button>
-          <button class="btn" style="background:#3b82f6;color:#fff" onClick={onConfirm}>자르기</button>
+          <button class="btn" style="background:#3b82f6;color:#fff" disabled={processing()} onClick={onConfirm}>
+            {processing() ? '처리중...' : '자르기'}
+          </button>
         </div>
       </div>
     </div>

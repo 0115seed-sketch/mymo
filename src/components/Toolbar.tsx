@@ -3,6 +3,7 @@ import type { Component } from 'solid-js'
 import type { Editor } from '@tiptap/core'
 import EmojiPicker from './EmojiPicker'
 import { darkMode } from '../stores/settings'
+import { fileToOptimizedDataUrl } from '../utils/image'
 
 const TEXT_COLORS = [
   { color: '#000000', name: '검정' },
@@ -256,17 +257,20 @@ const Toolbar: Component<ToolbarProps> = (props) => {
               input.multiple = true
               input.onchange = () => {
                 const files = Array.from(input.files ?? [])
-                files.forEach((file) => {
-                  const reader = new FileReader()
-                  reader.onload = () => {
-                    const src = reader.result as string
-                    ;(props.editor as any)!.chain().focus().insertContent({
-                      type: 'imageBlock',
-                      attrs: { src },
-                    }).run()
+                void (async () => {
+                  for (const file of files) {
+                    try {
+                      const src = await fileToOptimizedDataUrl(file)
+                      ;(props.editor as any)!.chain().focus().insertContent({
+                        type: 'imageBlock',
+                        attrs: { src },
+                      }).run()
+                    } catch (err) {
+                      const message = err instanceof Error ? err.message : '이미지를 삽입할 수 없습니다.'
+                      alert(message)
+                    }
                   }
-                  reader.readAsDataURL(file)
-                })
+                })()
               }
               input.click()
             }}
