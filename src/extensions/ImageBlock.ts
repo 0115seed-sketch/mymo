@@ -32,6 +32,7 @@ class ImageBlockView implements NodeView {
     this.dom = document.createElement('div')
     this.dom.className = 'image-block'
     this.dom.setAttribute('data-align', node.attrs.align ?? 'left')
+    this.dom.setAttribute('data-layout', node.attrs.layout ?? 'inline')
 
     // 내부 래퍼 (inline-block, 이미지 크기에 맞춰짐 — 핸들 기준점)
     this.inner = document.createElement('div')
@@ -82,6 +83,7 @@ class ImageBlockView implements NodeView {
     if (node.attrs.title) this.img.title = node.attrs.title
     this.img.style.width = node.attrs.width ? `${node.attrs.width}px` : ''
     this.dom.setAttribute('data-align', node.attrs.align ?? 'left')
+    this.dom.setAttribute('data-layout', node.attrs.layout ?? 'inline')
     return true
   }
 
@@ -162,11 +164,20 @@ export const ImageBlock = Image.extend({
         parseHTML: (el) => (el as HTMLElement).getAttribute('data-align') ?? 'left',
         renderHTML: (attrs) => ({ 'data-align': attrs.align ?? 'left' }),
       },
+      layout: {
+        default: 'inline',
+        parseHTML: (el) => (el as HTMLElement).getAttribute('data-layout') ?? 'inline',
+        renderHTML: (attrs) => ({ 'data-layout': attrs.layout ?? 'inline' }),
+      },
     }
   },
 
   renderHTML({ HTMLAttributes }) {
-    return ['div', { class: 'image-block', 'data-align': HTMLAttributes['data-align'] ?? 'left' },
+    return ['div', {
+      class: 'image-block',
+      'data-align': HTMLAttributes['data-align'] ?? 'left',
+      'data-layout': HTMLAttributes['data-layout'] ?? 'inline',
+    },
       ['img', { ...HTMLAttributes, class: 'image-block__img' }],
     ]
   },
@@ -183,6 +194,7 @@ export const ImageBlock = Image.extend({
             title: img.getAttribute('title'),
             width: img.getAttribute('width') ? parseInt(img.getAttribute('width')!, 10) : null,
             align: img.closest('div[data-align]')?.getAttribute('data-align') ?? 'left',
+            layout: img.closest('div[data-layout]')?.getAttribute('data-layout') ?? 'inline',
           }
         },
       },
@@ -217,7 +229,7 @@ export const ImageBlock = Image.extend({
                     const { schema } = view.state
                     const nodeType = schema.nodes.imageBlock
                     if (!nodeType) return
-                    const node = nodeType.create({ src })
+                    const node = nodeType.create({ src, width: 300 })
                     const tr = view.state.tr.replaceSelectionWith(node)
                     view.dispatch(tr)
                   })
@@ -251,7 +263,7 @@ export const ImageBlock = Image.extend({
                   const { schema } = view.state
                   const nodeType = schema.nodes.imageBlock
                   if (!nodeType) continue
-                  const node = nodeType.create({ src })
+                  const node = nodeType.create({ src, width: 300 })
                   const tr = view.state.tr.insert(insertPos, node)
                   view.dispatch(tr)
                   insertPos += node.nodeSize

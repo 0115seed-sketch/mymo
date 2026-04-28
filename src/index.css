@@ -124,6 +124,18 @@ body {
   transition: color 0.15s, background 0.15s;
 }
 
+/* inline 이미지 위에 올라갈 때: 배경으로 아이콘 가시성 확보 */
+.drag-handle[data-mode='inline'] {
+  background: rgba(255, 255, 255, 0.82);
+  color: #374151;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+}
+
+.dark .drag-handle[data-mode='inline'] {
+  background: rgba(30, 31, 54, 0.82);
+  color: #d1d5db;
+}
+
 .drag-handle:hover {
   color: var(--text-secondary);
   background: var(--bg-tertiary);
@@ -135,9 +147,16 @@ body {
 
 /* ── ImageBlock ── */
 .image-block {
+  display: inline-block;
+  vertical-align: top;
+  margin: 0.5em 0.5em 0.5em 0;
+  line-height: 0;
+  max-width: 100%;
+}
+
+.image-block[data-layout='block'] {
   display: block;
   margin: 0.5em 0;
-  line-height: 0;
 }
 
 /* inner는 이미지 크기에 맞게 줄어드는 inline-block — 핸들 기준점 */
@@ -148,10 +167,12 @@ body {
 }
 
 .image-block[data-align='center'] {
+  display: block;
   text-align: center;
 }
 
 .image-block[data-align='right'] {
+  display: block;
   text-align: right;
 }
 
@@ -169,6 +190,19 @@ body {
 /* ProseMirror가 노드를 선택했을 때 하이라이트 */
 .ProseMirror-selectednode .image-block__img {
   outline-color: #3b82f6;
+}
+
+/* 멀티선택: 이미지 아웃라인 (단일/다중 공통) */
+.multi-selected-block .image-block__img {
+  outline-color: #3b82f6;
+}
+
+/* 멀티선택 단일: 리사이즈 핸들 + 편집 버튼 표시 */
+.multi-selected-block--sole .image-resize-handle {
+  display: block;
+}
+.multi-selected-block--sole .image-edit-btn {
+  display: block;
 }
 
 /* ── 리사이즈 핸들 ── */

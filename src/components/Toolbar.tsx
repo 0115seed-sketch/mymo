@@ -263,7 +263,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
                       const src = await fileToOptimizedDataUrl(file)
                       ;(props.editor as any)!.chain().focus().insertContent({
                         type: 'imageBlock',
-                        attrs: { src },
+                        attrs: { src, width: 300 },
                       }).run()
                     } catch (err) {
                       const message = err instanceof Error ? err.message : '이미지를 삽입할 수 없습니다.'
