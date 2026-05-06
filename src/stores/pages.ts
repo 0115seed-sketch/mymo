@@ -15,7 +15,7 @@ export function createPageStore() {
 
   // --- Load ---
   const loadPages = async () => {
-    const all = await db.pages.orderBy('order').toArray()
+    const all = await db.pages.orderBy('updatedAt').reverse().toArray()
     setPages(all)
     const current = currentPageId()
     const active = all.filter(p => !p.deleted)
