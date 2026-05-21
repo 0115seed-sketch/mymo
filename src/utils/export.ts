@@ -9,6 +9,13 @@ function download(blob: Blob, filename: string) {
   URL.revokeObjectURL(url)
 }
 
+const buildBackupFilename = () => {
+  const now = new Date()
+  const date = now.toISOString().slice(0, 10)
+  const time = now.toTimeString().slice(0, 8).replace(/:/g, '-')
+  return `mymo-backup-${date}-${time}.json`
+}
+
 const EXPORT_CSS = `
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans KR', sans-serif; max-width: 800px; margin: 0 auto; padding: 40px 20px; color: #111827; line-height: 1.7; }
 h1 { font-size: 2em; font-weight: 700; margin: 0 0 0.5em 0; }
@@ -163,8 +170,7 @@ export async function backupData() {
 
   const json = JSON.stringify(backup, null, 2)
   const blob = new Blob([json], { type: 'application/json;charset=utf-8' })
-  const date = new Date().toISOString().slice(0, 10)
-  download(blob, `mymo-backup-${date}.json`)
+  download(blob, buildBackupFilename())
 }
 
 // 불러오기: JSON 파일에서 DB 복원

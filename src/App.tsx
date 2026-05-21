@@ -3,8 +3,8 @@ import type { Editor } from '@tiptap/core'
 import { createPageStore } from './stores/pages'
 import { user, authLoading, loginWithGoogle, logout } from './stores/auth'
 import { pullFromCloud, startRealtimeSync, stopRealtimeSync } from './stores/sync'
-import { darkMode } from './stores/settings'
-import { exportAsPDF, exportAsImage, exportAsMarkdown, exportAsText, backupData, restoreData } from './utils/export'
+import { darkMode, autoBackupEnabled, autoBackupIntervalMinutes } from './stores/settings'
+import { backupData } from './utils/export'
 import Sidebar from './components/Sidebar'
 import EditorView from './components/EditorView'
 import SettingsModal from './components/SettingsModal'
@@ -14,7 +14,7 @@ function App() {
   const [sidebarVisible, setSidebarVisible] = createSignal(true)
   const [showSettings, setShowSettings] = createSignal(false)
   const [currentEditor, setCurrentEditor] = createSignal<Editor | null>(null)
-  const [showExport, setShowExport] = createSignal(false)
+  let autoBackupTimer: number | undefined
 
   // Hash routing: #/페이지명/하위페이지명 또는 #pageId (fallback)
   const applyHash = () => {
@@ -67,6 +67,26 @@ function App() {
   })
   onCleanup(() => { stopRealtimeSync() })
 
+  createEffect(() => {
+    const enabled = autoBackupEnabled()
+    const minutes = autoBackupIntervalMinutes()
+
+    if (autoBackupTimer) {
+      clearInterval(autoBackupTimer)
+      autoBackupTimer = undefined
+    }
+
+    if (!enabled) return
+
+    autoBackupTimer = window.setInterval(async () => {
+      await backupData()
+    }, Math.max(1, minutes) * 60 * 1000)
+  })
+
+  onCleanup(() => {
+    if (autoBackupTimer) clearInterval(autoBackupTimer)
+  })
+
   return (
     <div class={`flex h-screen overflow-hidden ${darkMode() ? 'bg-[#1a1b2e] text-gray-200' : 'bg-white text-gray-900'}`}>
       <Show when={sidebarVisible()}>
@@ -103,39 +123,7 @@ function App() {
       {/* 로그인/로그아웃 버튼 */}
       <Show when={!authLoading()}>
         <div class="absolute top-2 right-3 z-50 flex items-center gap-2">
-          {/* 내보내기 버튼 */}
-          <Show when={currentEditor()}>
-            <div class="relative">
-              <button
-                class={`cursor-pointer border rounded-lg px-2 py-1.5 text-xs transition-colors shadow-sm ${darkMode() ? 'bg-gray-800 border-gray-600 hover:bg-gray-700 text-gray-300' : 'bg-white border-gray-300 hover:bg-gray-50 text-gray-700'}`}
-                onClick={() => setShowExport(!showExport())}
-                title="내보내기"
-              >📤</button>
-              <Show when={showExport()}>
-                <div class="color-dropdown" style="width: 140px; right: 0; left: auto;">
-                  <button class="color-dropdown-item" onClick={() => { exportAsPDF(currentEditor()!, store.currentPage()?.title || '문서'); setShowExport(false) }}>
-                    <span style="font-size:1.1em">📄</span> <span>PDF</span>
-                  </button>
-                  <button class="color-dropdown-item" onClick={() => { exportAsImage(currentEditor()!, store.currentPage()?.title || '문서'); setShowExport(false) }}>
-                    <span style="font-size:1.1em">🖼️</span> <span>이미지 (PNG)</span>
-                  </button>
-                  <button class="color-dropdown-item" onClick={() => { exportAsMarkdown(currentEditor()!, store.currentPage()?.title || '문서'); setShowExport(false) }}>
-                    <span style="font-size:1.1em">📝</span> <span>마크다운</span>
-                  </button>
-                  <button class="color-dropdown-item" onClick={() => { exportAsText(currentEditor()!, store.currentPage()?.title || '문서'); setShowExport(false) }}>
-                    <span style="font-size:1.1em">📃</span> <span>텍스트</span>
-                  </button>
-                  <div style="border-top: 1px solid var(--border-light); margin: 4px 0;" />
-                  <button class="color-dropdown-item" onClick={() => { backupData(); setShowExport(false) }}>
-                    <span style="font-size:1.1em">💾</span> <span>백업 (.json)</span>
-                  </button>
-                  <button class="color-dropdown-item" onClick={async () => { setShowExport(false); const r = await restoreData(); if (r.success) { await store.loadAll(); alert(r.message); location.reload(); } else if (r.message !== '취소되었습니다.') { alert(r.message); } }}>
-                    <span style="font-size:1.1em">📂</span> <span>불러오기</span>
-                  </button>
-                </div>
-              </Show>
-            </div>
-          </Show>
+          {/* 내보내기 버튼은 설정 모달로 이동 */}
           {/* 설정 버튼 */}
           <button
             class={`cursor-pointer border rounded-lg px-2 py-1.5 text-xs transition-colors shadow-sm ${darkMode() ? 'bg-gray-800 border-gray-600 hover:bg-gray-700 text-gray-300' : 'bg-white border-gray-300 hover:bg-gray-50 text-gray-700'}`}
@@ -231,7 +219,13 @@ function App() {
         }}
       </Show>
 
-      <SettingsModal open={showSettings()} onClose={() => setShowSettings(false)} />
+      <SettingsModal
+        open={showSettings()}
+        onClose={() => setShowSettings(false)}
+        editor={currentEditor()}
+        pageTitle={store.currentPage()?.title || '문서'}
+        onReload={async () => { await store.loadAll() }}
+      />
     </div>
   )
 }

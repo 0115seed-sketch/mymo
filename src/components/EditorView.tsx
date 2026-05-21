@@ -473,16 +473,16 @@ const EditorView: Component<EditorViewProps> = (props) => {
   return (
     <div class="flex-1 flex flex-col min-w-0 h-screen">
       {/* Title input */}
-      <div class={props.sidebarVisible === false ? "px-6 pt-5 pb-1 ml-10" : "px-6 pt-5 pb-1"}>
+      <div class={props.sidebarVisible === false ? "px-6 pt-14 sm:pt-5 pb-1 ml-10" : "px-6 pt-14 sm:pt-5 pb-1"}>
         <Show when={props.breadcrumbs && props.breadcrumbs!.length > 0}>
-          <div class={`mb-1 text-xs ${darkMode() ? 'text-gray-400' : 'text-gray-500'} select-none`}>
+          <div class={`mb-1 text-xs ${darkMode() ? 'text-white' : 'text-gray-500'} select-none`}>
             <span>#</span>
             <For each={props.breadcrumbs ?? []}>
               {(crumb) => (
                 <>
                   <a
                     href={`#${crumb.path}`}
-                    class={`hover:underline ${darkMode() ? 'hover:text-gray-200' : 'hover:text-gray-700'}`}
+                    class={`hover:underline ${darkMode() ? 'text-gray-200 hover:text-white' : 'hover:text-gray-700'}`}
                     onClick={(e) => {
                       e.preventDefault()
                       const hashValue = crumb.path.startsWith('/') ? crumb.path : `/${crumb.path}`

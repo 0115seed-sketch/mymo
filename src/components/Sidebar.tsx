@@ -253,7 +253,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
     }
   }
 
-  const sidebarClass = () => "w-60 h-screen border-r flex flex-col flex-shrink-0 " + (darkMode() ? 'bg-[#1e1f36] border-gray-700' : 'bg-gray-50 border-gray-200')
+  const sidebarClass = () => "w-[7.5rem] sm:w-60 h-screen border-r flex flex-col flex-shrink-0 " + (darkMode() ? 'bg-[#1e1f36] border-gray-700' : 'bg-gray-50 border-gray-200')
   const headerClass = () => "p-3 border-b flex items-center justify-between " + (darkMode() ? 'border-gray-700' : 'border-gray-200')
   const searchInputClass = () => "w-full text-sm rounded px-2 py-1 outline-none border " + (darkMode() ? 'bg-gray-800 border-gray-600 text-gray-200 placeholder-gray-500' : 'bg-white border-gray-300 placeholder-gray-400')
   const emptyClass = () => "px-3 py-4 text-sm text-center " + (darkMode() ? 'text-gray-500' : 'text-gray-400')
