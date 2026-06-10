@@ -102,6 +102,25 @@ export const DragHandle = Extension.create({
       return null
     }
 
+    // DOM 요소가 가리키는 imageBlock 노드의 문서 위치를 찾는다.
+    // NodeView 구조 차이로 posAtDOM 결과가 경계 위치일 수 있어 주변 위치를 함께 검사한다.
+    const getImageBlockPosFromDom = (target: HTMLElement): number | null => {
+      let basePos: number
+      try {
+        basePos = editorView.posAtDOM(target, 0)
+      } catch {
+        return null
+      }
+
+      const candidates = [basePos - 1, basePos, basePos + 1]
+      for (const pos of candidates) {
+        if (pos < 0 || pos >= editorView.state.doc.content.size) continue
+        const node = editorView.state.doc.nodeAt(pos)
+        if (node?.type.name === 'imageBlock') return pos
+      }
+      return null
+    }
+
     // Find the top-level block at the given pointer coordinate.
     // Y-only 탐색 대신 elementFromPoint를 우선 사용해 같은 줄의 블록도 정확히 집는다.
     const findBlockAtPoint = (mouseX: number, mouseY: number): { dom: HTMLElement; pos: number } | null => {
@@ -577,6 +596,20 @@ export const DragHandle = Extension.create({
                   clearBlockSelection()
                 }
                 return false
+              }
+
+              // 멀티컬럼/표 내부처럼 중첩된 이미지 클릭은 기본 PM 선택(NodeSelection)을 사용한다.
+              // 기존처럼 최상위 블록을 강제 선택하면 열/표 단위 선택으로 확대되어
+              // 이미지 단독 복사/삭제가 어려워진다.
+              const imagePos = getImageBlockPosFromDom(imgBlockEl)
+              if (imagePos != null) {
+                const topLevel = getTopLevelBlockFromDom(imgBlockEl)
+                if (topLevel && topLevel.pos !== imagePos) {
+                  if (!me.ctrlKey && !me.metaKey && !me.shiftKey && selectedBlockPositions.length > 0) {
+                    clearBlockSelection()
+                  }
+                  return false
+                }
               }
 
               const block = getTopLevelBlockFromDom(imgBlockEl)

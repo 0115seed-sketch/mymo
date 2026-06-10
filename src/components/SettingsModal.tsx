@@ -112,20 +112,58 @@ const SettingsModal: Component<SettingsModalProps> = (props) => {
                   자동 백업 파일은 브라우저 기본 다운로드 폴더에 저장됩니다.
                 </div>
 
-                <label class="flex items-center justify-between gap-2">
-                  <span>백업 주기(분)</span>
-                  <select
-                    class="rounded px-2 py-1"
-                    style={{ background: 'var(--bg-active)', color: 'var(--text-primary)', border: '1px solid var(--border-light)' }}
-                    value={String(autoBackupIntervalMinutes())}
-                    onChange={(e) => setAutoBackupIntervalMinutes(Number(e.currentTarget.value))}
-                  >
-                    <option value="5">5</option>
-                    <option value="10">10</option>
-                    <option value="15">15</option>
-                    <option value="30">30</option>
-                    <option value="60">60</option>
-                  </select>
+                {/* 빠른 프리셋 */}
+                <div class="flex gap-1 flex-wrap">
+                  {([5, 10, 30, 60] as const).map((m) => (
+                    <button
+                      type="button"
+                      onClick={() => setAutoBackupIntervalMinutes(m)}
+                      style={{
+                        padding: '2px 10px',
+                        'border-radius': '999px',
+                        'font-size': '12px',
+                        cursor: 'pointer',
+                        border: autoBackupIntervalMinutes() === m
+                          ? '1px solid var(--accent)'
+                          : '1px solid var(--border-light)',
+                        background: autoBackupIntervalMinutes() === m
+                          ? 'var(--accent)'
+                          : 'var(--bg-active)',
+                        color: autoBackupIntervalMinutes() === m ? '#fff' : 'var(--text-primary)',
+                        transition: 'background 0.15s',
+                      }}
+                    >
+                      {m}분
+                    </button>
+                  ))}
+                </div>
+
+                {/* 직접 입력 */}
+                <label class="flex items-center gap-2">
+                  <span style={{ 'white-space': 'nowrap', color: 'var(--text-secondary)' }}>직접 입력</span>
+                  <div class="flex items-center gap-1" style={{ flex: 1 }}>
+                    <input
+                      type="number"
+                      min="1"
+                      max="1440"
+                      value={String(autoBackupIntervalMinutes())}
+                      onInput={(e) => {
+                        const v = parseInt(e.currentTarget.value, 10)
+                        if (Number.isFinite(v) && v >= 1 && v <= 1440) setAutoBackupIntervalMinutes(v)
+                      }}
+                      style={{
+                        width: '72px',
+                        padding: '3px 8px',
+                        'border-radius': '6px',
+                        border: '1px solid var(--border-light)',
+                        background: 'var(--bg-active)',
+                        color: 'var(--text-primary)',
+                        'font-size': '13px',
+                        outline: 'none',
+                      }}
+                    />
+                    <span style={{ 'font-size': '12px', color: 'var(--text-secondary)' }}>분</span>
+                  </div>
                 </label>
               </div>
             </Show>
