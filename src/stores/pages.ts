@@ -30,13 +30,14 @@ export function createPageStore() {
 
   // --- Derived ---
   const activePages = () => pages().filter(p => !p.deleted)
+  const hiddenPages = () => activePages().filter(p => p.hidden)
   const trashedPages = () =>
     pages().filter(p =>
       p.deleted &&
       (!p.parentPageId || !pageById(p.parentPageId)?.deleted)
     )
-  const rootPages = () => activePages().filter(p => !p.parentPageId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-  const subPages = (parentPageId: string) => activePages().filter(p => p.parentPageId === parentPageId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  const rootPages = () => activePages().filter(p => !p.hidden && !p.parentPageId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  const subPages = (parentPageId: string) => activePages().filter(p => !p.hidden && p.parentPageId === parentPageId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
   const currentPage = () => pages().find(p => p.id === currentPageId()) ?? null
   const pageById = (id: string) => pages().find(p => p.id === id) ?? null
 
@@ -154,6 +155,7 @@ export function createPageStore() {
       folderId: null,
       parentPageId,
       deleted: false,
+      hidden: false,
       order: 0,
       createdAt: now,
       updatedAt: now,
@@ -238,6 +240,17 @@ export function createPageStore() {
         const page = await db.pages.get(pid)
         if (page) syncPageToCloud(uid, page)
       }
+    }
+  }
+
+  const setPageHidden = async (id: string, hidden: boolean) => {
+    const updatedAt = Date.now()
+    await db.pages.update(id, { hidden, updatedAt })
+    setPages(prev => prev.map(p => p.id === id ? { ...p, hidden, updatedAt } : p))
+    const uid = user()?.uid
+    if (uid) {
+      const page = await db.pages.get(id)
+      if (page) syncPageToCloud(uid, page)
     }
   }
 
@@ -351,6 +364,7 @@ export function createPageStore() {
     setShowTrash,
     setCurrentPageId,
     activePages,
+    hiddenPages,
     trashedPages,
     rootPages,
     subPages,
@@ -361,6 +375,7 @@ export function createPageStore() {
     updatePage,
     trashPage,
     restorePage,
+    setPageHidden,
     deletePage,
     emptyTrash,
     reorderPage,

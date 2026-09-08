@@ -6,6 +6,7 @@ import { darkMode } from '../stores/settings'
 interface SidebarProps {
   rootPages: Page[]
   subPages: (parentPageId: string) => Page[]
+  hiddenPages: Page[]
   trashedPages: Page[]
   currentPageId: string | null
   showTrash: boolean
@@ -15,6 +16,7 @@ interface SidebarProps {
   onCreatePage: (parentPageId?: string | null) => void
   onTrashPage: (id: string) => void
   onRestorePage: (id: string) => void
+  onSetPageHidden: (id: string, hidden: boolean) => void
   onDeletePage: (id: string) => void
   onEmptyTrash: () => void
   onToggleTrash: () => void
@@ -29,12 +31,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const [draggedPageId, setDraggedPageId] = createSignal<string | null>(null)
   const [dropIndicator, setDropIndicator] = createSignal<{ parentPageId: string | null; index: number } | null>(null)
   const [dropAsChild, setDropAsChild] = createSignal<string | null>(null)
-  const forcedExpandedAncestors = createMemo(() => {
-    const pageId = props.currentPageId
-    if (!pageId) return new Set<string>()
-    return new Set<string>([...props.ancestorIds(pageId), pageId])
-  })
-
+  const [showHidden, setShowHidden] = createSignal(false)
   const togglePage = (id: string) => {
     const next = new Set<string>(expandedPages())
     if (next.has(id)) next.delete(id)
@@ -46,16 +43,18 @@ const Sidebar: Component<SidebarProps> = (props) => {
     setExpandedPages(new Set<string>())
   }
 
-  // currentPageId 변경 시 조상 경로 자동 펼침
+  // 하위 페이지로 이동하면 조상 경로를 펼친다.
   createEffect(() => {
     const pageId = props.currentPageId
     if (!pageId) return
     props.pageById(pageId)
     const ancestors = props.ancestorIds(pageId)
-    const next = new Set<string>(expandedPages())
-    next.add(pageId)
-    for (const aid of ancestors) next.add(aid)
-    setExpandedPages(next)
+    setExpandedPages(current => {
+      const next = new Set<string>(current)
+      next.add(pageId)
+      for (const aid of ancestors) next.add(aid)
+      return next
+    })
   })
 
   const allActivePages = () => {
@@ -99,7 +98,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const PageItem = (p: { page: Page; depth?: number; index: number; parentPageId: string | null }) => {
     const children = () => props.subPages(p.page.id)
     const hasChildren = () => children().length > 0
-    const isExpanded = () => expandedPages().has(p.page.id) || forcedExpandedAncestors().has(p.page.id)
+    const isExpanded = () => expandedPages().has(p.page.id)
     const depth = p.depth ?? 0
 
     const handleDragOver = (e: DragEvent) => {
@@ -200,6 +199,11 @@ const Sidebar: Component<SidebarProps> = (props) => {
             title="서브페이지 추가"
           >+</button>
           <button
+            class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-amber-500 ml-0.5 text-xs transition-opacity"
+            onClick={(e) => { e.stopPropagation(); props.onSetPageHidden(p.page.id, true) }}
+            title="사이드바에서 숨기기"
+          >◉</button>
+          <button
             class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 ml-0.5 text-xs transition-opacity"
             onClick={(e) => { e.stopPropagation(); props.onTrashPage(p.page.id) }}
             title="삭제"
@@ -258,6 +262,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
   const searchInputClass = () => "w-full text-sm rounded px-2 py-1 outline-none border " + (darkMode() ? 'bg-gray-800 border-gray-600 text-gray-200 placeholder-gray-500' : 'bg-white border-gray-300 placeholder-gray-400')
   const emptyClass = () => "px-3 py-4 text-sm text-center " + (darkMode() ? 'text-gray-500' : 'text-gray-400')
   const trashBorderClass = () => "border-t " + (darkMode() ? 'border-gray-700' : 'border-gray-200')
+  const hiddenItemClass = () => "group flex items-center py-1.5 px-3 mx-1 rounded text-sm " + (darkMode() ? 'hover:bg-gray-700' : 'hover:bg-gray-100')
   const trashRowClass = () => "flex items-center px-3 py-2 cursor-pointer text-sm transition-colors " + (darkMode() ? 'hover:bg-gray-700' : 'hover:bg-gray-100')
   const trashCountClass = () => "text-xs mr-1 " + (darkMode() ? 'text-gray-500' : 'text-gray-400')
   const trashEmptyClass = () => "px-3 py-2 text-xs text-center " + (darkMode() ? 'text-gray-500' : 'text-gray-400')
@@ -331,6 +336,36 @@ const Sidebar: Component<SidebarProps> = (props) => {
               </Show>
             </>
           )}
+        </Show>
+      </div>
+
+      <div class={trashBorderClass()}>
+        <div class={trashRowClass()} onClick={() => setShowHidden(!showHidden())}>
+          <span class="mr-1.5">◉</span>
+          <span class="flex-1">숨긴 페이지</span>
+          <Show when={props.hiddenPages.length > 0}>
+            <span class={trashCountClass()}>{props.hiddenPages.length}</span>
+          </Show>
+          <span class="text-xs">{showHidden() ? '▼' : '▶'}</span>
+        </div>
+        <Show when={showHidden()}>
+          <div class="max-h-40 overflow-y-auto">
+            <For each={props.hiddenPages}>
+              {(page) => (
+                <div class={hiddenItemClass()}>
+                  <span class="flex-1 truncate">{page.title || '\uC81C\uBAA9 \uC5C6\uC74C'}</span>
+                  <button
+                    class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-green-600 ml-1 text-xs transition-opacity"
+                    onClick={() => props.onSetPageHidden(page.id, false)}
+                    title="숨김 해제"
+                  >↩</button>
+                </div>
+              )}
+            </For>
+            <Show when={props.hiddenPages.length === 0}>
+              <div class={trashEmptyClass()}>없음</div>
+            </Show>
+          </div>
         </Show>
       </div>
 

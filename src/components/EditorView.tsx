@@ -17,6 +17,7 @@ import { DragHandle } from '../extensions/DragHandle'
 import { KeyboardShortcuts } from '../extensions/KeyboardShortcuts'
 import { CodeBlockCopyButton } from '../extensions/CodeBlockCopyButton'
 import { ImageBlock } from '../extensions/ImageBlock'
+import { WeekDate } from '../extensions/WeekDate'
 import TextAlign from '@tiptap/extension-text-align'
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
@@ -347,6 +348,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
   const [editorVersion, setEditorVersion] = createSignal(0)
   const [titleDraft, setTitleDraft] = createSignal('')
   const [cropSrc, setCropSrc] = createSignal<string | null>(null)
+  const [contextMenuPosition, setContextMenuPosition] = createSignal<{ x: number; y: number } | null>(null)
   let cropNodePos: number | null = null
   let saveTimeout: ReturnType<typeof setTimeout> | null = null
   let selectionUpdateRaf: number | null = null
@@ -392,6 +394,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
         KeyboardShortcuts,
         CodeBlockCopyButton,
         ImageBlock,
+        WeekDate,
         TextAlign.configure({
           types: ['heading', 'paragraph'],
         }),
@@ -441,6 +444,23 @@ const EditorView: Component<EditorViewProps> = (props) => {
       } else {
         window.open(href, '_blank', 'noopener')
       }
+    })
+
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault()
+      setContextMenuPosition({
+        x: Math.max(8, Math.min(e.clientX, window.innerWidth - 260)),
+        y: Math.max(8, Math.min(e.clientY, window.innerHeight - 420)),
+      })
+    }
+    const closeContextMenu = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('.editor-context-menu')) setContextMenuPosition(null)
+    }
+    editorElement.addEventListener('contextmenu', onContextMenu)
+    document.addEventListener('mousedown', closeContextMenu)
+    onCleanup(() => {
+      editorElement.removeEventListener('contextmenu', onContextMenu)
+      document.removeEventListener('mousedown', closeContextMenu)
     })
   })
 
@@ -515,7 +535,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
       </div>
 
       {/* Toolbar */}
-      <Toolbar editor={editor()} version={editorVersion()} pageTitle={props.pageTitle} pageId={props.pageId} onCreateSubPage={props.onCreateSubPage} />
+      <Toolbar editor={editor()} version={editorVersion()} pageTitle={props.pageTitle} pageId={props.pageId} onCreateSubPage={props.onCreateSubPage} contextMenuPosition={contextMenuPosition()} onCloseContextMenu={() => setContextMenuPosition(null)} />
 
       {/* Editor */}
       <div class="flex-1 overflow-y-auto px-6 py-4">

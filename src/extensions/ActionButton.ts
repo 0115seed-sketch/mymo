@@ -8,6 +8,7 @@ import { TextStyle } from '@tiptap/extension-text-style'
 import { Table } from '@tiptap/extension-table'
 import { TableRow } from '@tiptap/extension-table-row'
 import { CustomTableCell, CustomTableHeader } from './CustomTableCell'
+import { WeekDate } from './WeekDate'
 import TextAlign from '@tiptap/extension-text-align'
 import { type NodeViewRendererProps } from '@tiptap/core'
 
@@ -193,6 +194,7 @@ export const ActionButton = Node.create({
             TableRow.configure(),
             CustomTableCell,
             CustomTableHeader,
+            WeekDate,
             Node.create({
               name: 'multiColumn',
               group: 'block',

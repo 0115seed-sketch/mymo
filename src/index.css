@@ -363,6 +363,73 @@ body {
   border-radius: 2px;
 }
 
+.week-date {
+  display: inline-block;
+  margin: 0 0.15em;
+  padding: 0.15em 0.5em;
+  border: 1px solid var(--border-medium);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg-tertiary) 72%, transparent);
+  color: var(--text-secondary);
+  font: inherit;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.week-date:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.editor-context-menu {
+  position: fixed;
+  z-index: 100;
+  width: 248px;
+  padding: 6px;
+  border: 1px solid var(--border-medium);
+  border-radius: 6px;
+  background: var(--bg-dropdown);
+  box-shadow: var(--shadow-dropdown);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+}
+
+.context-menu-label {
+  padding: 5px 8px 2px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.context-menu-trigger {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.context-menu-trigger:hover { background: var(--bg-hover); }
+
+.context-menu-row {
+  display: flex;
+  gap: 3px;
+  padding: 4px 2px 7px;
+}
+
+.context-menu-row .btn { min-width: 28px; padding: 4px 6px; }
+
+.context-menu-insert-row { flex-wrap: wrap; }
+
+.context-menu-colors { padding: 2px 0 4px; }
+
 /* Table styles */
 .editor-content .tiptap table {
   border-collapse: collapse;

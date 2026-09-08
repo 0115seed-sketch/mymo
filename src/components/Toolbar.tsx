@@ -34,6 +34,8 @@ interface ToolbarProps {
   pageTitle?: string
   pageId?: string | null
   onCreateSubPage?: (parentPageId: string) => Promise<{ id: string; title: string; path: string } | undefined>
+  contextMenuPosition?: { x: number; y: number } | null
+  onCloseContextMenu?: () => void
 }
 
 const Toolbar: Component<ToolbarProps> = (props) => {
@@ -43,6 +45,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
   const [showCellColor, setShowCellColor] = createSignal(false)
   const [showTextGroup, setShowTextGroup] = createSignal(false)
   const [showInsertGroup, setShowInsertGroup] = createSignal(false)
+  const [showContextTextColor, setShowContextTextColor] = createSignal(false)
 
   const isActive = (name: string, attrs?: Record<string, unknown>) => {
     void props.version
@@ -88,6 +91,9 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           </button>
           <button class={isActive('heading', { level: 3 })} onClick={() => props.editor!.chain().focus().toggleHeading({ level: 3 }).run()}>
             H3
+          </button>
+          <button class={isActive('paragraph')} onClick={() => props.editor!.chain().focus().setParagraph().run()} title="일반 텍스트">
+            본문
           </button>
 
           <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
@@ -467,6 +473,18 @@ const Toolbar: Component<ToolbarProps> = (props) => {
             ⚡ 버튼
           </button>
 
+          <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
+          <For each={['월', '화', '수', '목', '금', '토', '일']}>
+            {(label, index) => (
+              <button class="btn" onClick={() => (props.editor as any)!.chain().focus().insertWeekDate(index()).run()} title={`이번주 ${label}`}>
+                {label}
+              </button>
+            )}
+          </For>
+          <button class="btn" onClick={() => (props.editor as any)!.chain().focus().convertAllWeekDates().run()}>
+            요일 모두 변환
+          </button>
+
           {/* Sub-page insert */}
           <Show when={props.pageId && props.onCreateSubPage}>
             <button class="btn" onClick={async () => {
@@ -486,6 +504,63 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           </Show>
         </Show>
       </div>
+      <Show when={props.contextMenuPosition}>
+        {(position) => (
+          <div class="editor-context-menu" style={{ left: `${position().x}px`, top: `${position().y}px` }}>
+            <div class="context-menu-label">글자 설정</div>
+            <div class="context-menu-row">
+              <button class={isActive('bold')} onClick={() => props.editor!.chain().focus().toggleBold().run()}><strong>B</strong></button>
+              <button class={isActive('italic')} onClick={() => props.editor!.chain().focus().toggleItalic().run()}><em>I</em></button>
+              <button class={isActive('underline')} onClick={() => props.editor!.chain().focus().toggleUnderline().run()}><u>U</u></button>
+              <button class={isActive('strike')} onClick={() => props.editor!.chain().focus().toggleStrike().run()}><s>S</s></button>
+              <button class="btn" onClick={() => props.editor!.chain().focus().setTextAlign('left').run()} title="왼쪽 정렬">◧</button>
+              <button class="btn" onClick={() => props.editor!.chain().focus().setTextAlign('center').run()} title="중앙 정렬">◫</button>
+              <button class="btn" onClick={() => props.editor!.chain().focus().setTextAlign('right').run()} title="오른쪽 정렬">◨</button>
+            </div>
+            <button class="context-menu-trigger" onClick={() => setShowContextTextColor(!showContextTextColor())}>
+              글자색 <span>{showContextTextColor() ? '▼' : '▶'}</span>
+            </button>
+            <Show when={showContextTextColor()}>
+              <div class="context-menu-colors">
+                <For each={TEXT_COLORS}>
+                  {(color) => (
+                    <button class="color-dropdown-item" onClick={() => { props.editor!.chain().focus().setColor(color.color).run(); props.onCloseContextMenu?.() }}>
+                      <span class="color-dot" style={`background:${color.color};${color.border ? 'border:1px solid #d1d5db;' : ''}`} />
+                      <span>{color.name}</span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
+            <div class="context-menu-label">삽입</div>
+            <div class="context-menu-row context-menu-insert-row">
+              <button class="btn" onClick={() => props.editor!.chain().focus().toggleTaskList().run()}>☑ 할일</button>
+              <button class="btn" onClick={() => props.editor!.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: false }).run()}>▦ 표</button>
+              <Show when={props.pageId && props.onCreateSubPage}>
+                <button class="btn" onClick={async () => {
+                  const pageId = props.pageId
+                  if (!pageId || !props.onCreateSubPage) return
+                  const sub = await props.onCreateSubPage(pageId)
+                  if (sub) {
+                    props.editor!.chain().focus().insertContent({
+                      type: 'text',
+                      text: `📄 ${sub.title}`,
+                      marks: [{ type: 'link', attrs: { href: `#${sub.id}`, target: null } }],
+                    }).run()
+                  }
+                }}>📄+ 서브페이지</button>
+              </Show>
+            </div>
+            <div class="context-menu-row context-menu-insert-row">
+              <For each={['월', '화', '수', '목', '금', '토', '일']}>
+                {(label, index) => (
+                  <button class="btn" onClick={() => (props.editor as any)!.chain().focus().insertWeekDate(index()).run()} title={`이번주 ${label}`}>{label}</button>
+                )}
+              </For>
+            </div>
+          </div>
+        )}
+      </Show>
     </Show>
   )
 }

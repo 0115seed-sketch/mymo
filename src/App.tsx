@@ -93,6 +93,7 @@ function App() {
         <Sidebar
           rootPages={store.rootPages()}
           subPages={(pid: string) => store.subPages(pid)}
+          hiddenPages={store.hiddenPages()}
           trashedPages={store.trashedPages()}
           currentPageId={store.currentPageId()}
           showTrash={store.showTrash()}
@@ -102,6 +103,7 @@ function App() {
           onCreatePage={(parentPageId?: string | null) => store.createPage('새 페이지', parentPageId ?? null)}
           onTrashPage={(id: string) => store.trashPage(id)}
           onRestorePage={(id: string) => store.restorePage(id)}
+          onSetPageHidden={(id: string, hidden: boolean) => store.setPageHidden(id, hidden)}
           onDeletePage={(id: string) => store.deletePage(id)}
           onEmptyTrash={() => store.emptyTrash()}
           onToggleTrash={() => store.setShowTrash(!store.showTrash())}
