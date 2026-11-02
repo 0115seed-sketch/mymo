@@ -11,10 +11,35 @@ import SettingsModal from './components/SettingsModal'
 
 function App() {
   const store = createPageStore()
-  const [sidebarVisible, setSidebarVisible] = createSignal(true)
+  const mobileQuery = window.matchMedia('(max-width: 639px)')
+  const [isMobile, setIsMobile] = createSignal(mobileQuery.matches)
+  const [sidebarVisible, setSidebarVisible] = createSignal(!mobileQuery.matches)
   const [showSettings, setShowSettings] = createSignal(false)
   const [currentEditor, setCurrentEditor] = createSignal<Editor | null>(null)
   let autoBackupTimer: number | undefined
+
+  const closeMobileSidebar = () => {
+    if (isMobile()) setSidebarVisible(false)
+  }
+
+  onMount(() => {
+    const onViewportChange = (event: MediaQueryListEvent) => {
+      setIsMobile(event.matches)
+      setSidebarVisible(!event.matches)
+    }
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && isMobile() && sidebarVisible()) {
+        setSidebarVisible(false)
+        document.getElementById('sidebar-toggle')?.focus()
+      }
+    }
+    mobileQuery.addEventListener('change', onViewportChange)
+    window.addEventListener('keydown', onEscape)
+    onCleanup(() => {
+      mobileQuery.removeEventListener('change', onViewportChange)
+      window.removeEventListener('keydown', onEscape)
+    })
+  })
 
   // Hash routing: #/페이지명/하위페이지명 또는 #pageId (fallback)
   const applyHash = () => {
@@ -99,25 +124,42 @@ function App() {
           showTrash={store.showTrash()}
           pageById={(id: string) => store.pageById(id)}
           ancestorIds={(pageId: string) => store.getAncestorIds(pageId)}
-          onSelectPage={(id: string) => store.setCurrentPageId(id)}
-          onCreatePage={(parentPageId?: string | null) => store.createPage('새 페이지', parentPageId ?? null)}
+          onSelectPage={(id: string) => {
+            store.setCurrentPageId(id)
+            closeMobileSidebar()
+          }}
+          onCreatePage={async (parentPageId?: string | null) => {
+            await store.createPage('새 페이지', parentPageId ?? null)
+            closeMobileSidebar()
+          }}
           onTrashPage={(id: string) => store.trashPage(id)}
           onRestorePage={(id: string) => store.restorePage(id)}
           onSetPageHidden={(id: string, hidden: boolean) => store.setPageHidden(id, hidden)}
           onDeletePage={(id: string) => store.deletePage(id)}
           onEmptyTrash={() => store.emptyTrash()}
           onToggleTrash={() => store.setShowTrash(!store.showTrash())}
-          onHideSidebar={() => setSidebarVisible(false)}
+          onHideSidebar={() => {
+            setSidebarVisible(false)
+            document.getElementById('sidebar-toggle')?.focus()
+          }}
           onReorderPage={(pageId: string, newIndex: number, parentPageId: string | null) => store.reorderPage(pageId, newIndex, parentPageId)}
           onMovePageToParent={(pageId: string, newParentPageId: string | null) => store.movePageToParent(pageId, newParentPageId)}
         />
       </Show>
 
+      <div class="app-workspace" inert={isMobile() && sidebarVisible()}>
       {/* Sidebar show button when hidden */}
       <Show when={!sidebarVisible()}>
         <button
+          id="sidebar-toggle"
           class={`absolute top-3 left-3 z-50 border rounded px-2 py-1 text-sm cursor-pointer transition-colors ${darkMode() ? 'bg-gray-800 hover:bg-gray-700 border-gray-600 text-gray-200' : 'bg-gray-100 hover:bg-gray-200 border-gray-300'}`}
-          onClick={() => setSidebarVisible(true)}
+          onClick={() => {
+            setSidebarVisible(true)
+            if (isMobile()) document.getElementById('sidebar-close')?.focus()
+          }}
+          aria-label="사이드바 열기"
+          aria-controls="page-sidebar"
+          aria-expanded={sidebarVisible()}
           title="사이드바 표시"
         >▶</button>
       </Show>
@@ -220,6 +262,8 @@ function App() {
           )
         }}
       </Show>
+
+      </div>
 
       <SettingsModal
         open={showSettings()}

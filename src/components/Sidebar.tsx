@@ -257,7 +257,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
     }
   }
 
-  const sidebarClass = () => "w-[7.5rem] sm:w-60 h-screen border-r flex flex-col flex-shrink-0 " + (darkMode() ? 'bg-[#1e1f36] border-gray-700' : 'bg-gray-50 border-gray-200')
+  const sidebarClass = () => "page-sidebar sm:w-60 h-screen border-r flex flex-col flex-shrink-0 " + (darkMode() ? 'bg-[#1e1f36] border-gray-700' : 'bg-gray-50 border-gray-200')
   const headerClass = () => "p-3 border-b flex items-center justify-between " + (darkMode() ? 'border-gray-700' : 'border-gray-200')
   const searchInputClass = () => "w-full text-sm rounded px-2 py-1 outline-none border " + (darkMode() ? 'bg-gray-800 border-gray-600 text-gray-200 placeholder-gray-500' : 'bg-white border-gray-300 placeholder-gray-400')
   const emptyClass = () => "px-3 py-4 text-sm text-center " + (darkMode() ? 'text-gray-500' : 'text-gray-400')
@@ -273,7 +273,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
       : (darkMode() ? 'hover:bg-gray-700' : 'hover:bg-gray-100'))
 
   return (
-    <div class={sidebarClass()}>
+    <div id="page-sidebar" role="navigation" aria-label="페이지 목록" class={sidebarClass()}>
       <div class={headerClass()}>
         <span class="font-bold text-base cursor-pointer" onClick={collapseAll} title="모두 접기">mymo</span>
         <div class="flex gap-1">
@@ -283,9 +283,11 @@ const Sidebar: Component<SidebarProps> = (props) => {
             title="새 페이지"
           >+</button>
           <button
+            id="sidebar-close"
             class="btn text-xs"
             onClick={() => props.onHideSidebar()}
             title="사이드바 숨기기"
+            aria-label="사이드바 닫기"
           >{'\u25C0'}</button>
         </div>
       </div>
@@ -301,7 +303,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
       </div>
 
       <div
-        class="flex-1 overflow-y-auto py-1"
+        class="flex-1 min-h-0 overflow-y-auto py-1"
         onDragOver={handleRootDragOver}
         onDrop={handleRootDrop}
       >
