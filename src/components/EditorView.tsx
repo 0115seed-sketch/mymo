@@ -1,4 +1,6 @@
 import { createSignal, onMount, onCleanup, createEffect, For, Show } from 'solid-js'
+import { parseDocument } from '../utils/pageValidation'
+import { pendingLocalWrites, reportStorageError } from '../stores/persistence'
 import type { Component } from 'solid-js'
 import { Editor, mergeAttributes } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
@@ -334,8 +336,8 @@ interface EditorViewProps {
   pagePath?: string
   breadcrumbs?: Array<{ id: string; title: string; path: string }>
   sidebarVisible?: boolean
-  onUpdate: (content: string) => void
-  onTitleChange: (title: string) => void
+  onUpdate: (content: string, baseContent?: string) => void | Promise<void>
+  onTitleChange: (title: string, baseTitle?: string) => void | Promise<void>
   onEditorReady?: (editor: Editor | null) => void
   onCreateSubPage?: (parentPageId: string) => Promise<{ id: string; title: string; path: string } | undefined>
   onNavigateHash?: (hash: string) => void
@@ -350,15 +352,40 @@ const EditorView: Component<EditorViewProps> = (props) => {
   const [cropSrc, setCropSrc] = createSignal<string | null>(null)
   const [contextMenuPosition, setContextMenuPosition] = createSignal<{ x: number; y: number } | null>(null)
   let cropNodePos: number | null = null
-  let saveTimeout: ReturnType<typeof setTimeout> | null = null
+  let lastAppliedContent = props.content
+  let lastAppliedTitle = props.pageTitle
+  let bodyDirty = false
+  let titleDirty = false
+  let bodyVersion = 0
+  let titleVersion = 0
+  const persistBody = (content: string, baseContent: string) => {
+    const version = ++bodyVersion
+    bodyDirty = true
+    Promise.resolve(props.onUpdate(content, baseContent)).then(() => {
+      if (version === bodyVersion) bodyDirty = false
+    }, reportStorageError)
+  }
+  const [documentError, setDocumentError] = createSignal('')
+  const readContent = (content: string) => {
+    try { return parseDocument(content) } catch (error) {
+      setDocumentError(error instanceof Error ? error.message : String(error))
+      return { type: 'doc', content: [{ type: 'paragraph' }] }
+    }
+  }
   let selectionUpdateRaf: number | null = null
   let composing = false
 
   const commitTitle = () => {
     const next = titleInput?.value ?? titleDraft()
+    if (!titleDirty) return
     if (next !== props.pageTitle) {
-      props.onTitleChange(next)
-    }
+      const previous = lastAppliedTitle
+      lastAppliedTitle = next
+      const version = ++titleVersion
+      Promise.resolve(props.onTitleChange(next, previous)).then(() => {
+        if (version === titleVersion) titleDirty = false
+      }, reportStorageError)
+    } else titleDirty = false
   }
 
   onMount(() => {
@@ -400,13 +427,15 @@ const EditorView: Component<EditorViewProps> = (props) => {
         }),
         TableResize,
       ],
-      content: props.content ? JSON.parse(props.content) : undefined,
+      content: readContent(props.content),
+      editable: !documentError(),
       onUpdate: ({ editor: e }) => {
         setEditorVersion(v => v + 1)
-        if (saveTimeout) clearTimeout(saveTimeout)
-        saveTimeout = setTimeout(() => {
-          props.onUpdate(JSON.stringify(e.getJSON()))
-        }, 300)
+        const content = JSON.stringify(e.getJSON())
+        const previous = lastAppliedContent
+        lastAppliedContent = content
+        // Start the IndexedDB transaction in the input event; no cancellable timer.
+        persistBody(content, previous)
       },
       onSelectionUpdate: () => {
         if (selectionUpdateRaf != null) return
@@ -418,6 +447,21 @@ const EditorView: Component<EditorViewProps> = (props) => {
     })
     setEditor(ed)
     props.onEditorReady?.(ed)
+    const flushTitle = () => {
+      try {
+        commitTitle()
+        if (bodyDirty && !documentError()) persistBody(JSON.stringify(ed.getJSON()), lastAppliedContent)
+      } catch (error) { reportStorageError(error) }
+    }
+    const onVisibility = () => { if (document.visibilityState === 'hidden') flushTitle() }
+    window.addEventListener('mymo:flush-editors', flushTitle)
+    window.addEventListener('pagehide', flushTitle)
+    document.addEventListener('visibilitychange', onVisibility)
+    onCleanup(() => {
+      window.removeEventListener('mymo:flush-editors', flushTitle)
+      window.removeEventListener('pagehide', flushTitle)
+      document.removeEventListener('visibilitychange', onVisibility)
+    })
 
     // image-block:crop 이벤트 수신
     const onCropEvent = (e: Event) => {
@@ -464,27 +508,32 @@ const EditorView: Component<EditorViewProps> = (props) => {
     })
   })
 
-  // 페이지 변경 시에만 에디터 내용 교체 (content 변경은 무시 — 커서 리셋 방지)
-  let prevPageId: string | null = null
+  // Apply remote edits without emitting a local edit or resetting a valid selection.
   createEffect(() => {
     const ed = editor()
-    const pageId = props.pageId
-    if (ed && pageId && pageId !== prevPageId) {
-      prevPageId = pageId
-      const content = props.content ? JSON.parse(props.content) : { type: 'doc', content: [] }
-      ed.commands.setContent(content)
-    }
+    const incoming = props.content
+    const saving = pendingLocalWrites()
+    if (!ed || saving || bodyDirty || incoming === lastAppliedContent) return
+    const content = readContent(incoming)
+    if (documentError()) { ed.setEditable(false); return }
+    const { from, to } = ed.state.selection
+    ed.commands.setContent(content, { emitUpdate: false })
+    const max = ed.state.doc.content.size
+    ed.commands.setTextSelection({ from: Math.min(from, max), to: Math.min(to, max) })
+    lastAppliedContent = incoming
   })
 
   // 페이지 전환 시 제목 input 동기화 (IME 중복 방지를 위해 ref 사용)
   createEffect(() => {
     const next = props.pageTitle
+    if (pendingLocalWrites() || composing || titleDirty) return
+    lastAppliedTitle = next
     setTitleDraft(next)
-    if (titleInput && titleInput.value !== next) titleInput.value = next
+    if (titleInput && !composing && titleInput.value !== next) titleInput.value = next
   })
 
   onCleanup(() => {
-    if (saveTimeout) clearTimeout(saveTimeout)
+    commitTitle()
     if (selectionUpdateRaf != null) cancelAnimationFrame(selectionUpdateRaf)
     props.onEditorReady?.(null)
     editor()?.destroy()
@@ -493,9 +542,9 @@ const EditorView: Component<EditorViewProps> = (props) => {
   return (
     <div class="flex-1 flex flex-col min-w-0 h-screen">
       {/* Title input */}
-      <div class={props.sidebarVisible === false ? "px-6 pt-14 sm:pt-5 pb-1 ml-10" : "px-6 pt-14 sm:pt-5 pb-1"}>
+      <div class={props.sidebarVisible === false ? "editor-titlebar px-6 pt-14 sm:pt-5 pb-1 ml-10" : "editor-titlebar px-6 pt-14 sm:pt-5 pb-1"}>
         <Show when={props.breadcrumbs && props.breadcrumbs!.length > 0}>
-          <div class={`mb-1 text-xs ${darkMode() ? 'text-white' : 'text-gray-500'} select-none`}>
+          <div class={`editor-breadcrumbs mb-1 text-xs ${darkMode() ? 'text-white' : 'text-gray-500'} select-none`}>
             <span>#</span>
             <For each={props.breadcrumbs ?? []}>
               {(crumb) => (
@@ -522,18 +571,19 @@ const EditorView: Component<EditorViewProps> = (props) => {
           type="text"
           placeholder="제목 없음"
           onCompositionStart={() => { composing = true }}
-          onCompositionEnd={(e) => { composing = false; setTitleDraft(e.currentTarget.value) }}
-          onInput={(e) => { setTitleDraft(e.currentTarget.value) }}
+          onCompositionEnd={(e) => { composing = false; titleDirty = true; setTitleDraft(e.currentTarget.value); commitTitle() }}
+          onInput={(e) => { titleDirty = true; setTitleDraft(e.currentTarget.value); if (!composing) commitTitle() }}
           onBlur={commitTitle}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !composing) {
               e.currentTarget.blur()
             }
           }}
-          class={`w-full text-3xl font-bold outline-none border-none bg-transparent ${darkMode() ? 'text-gray-100 placeholder-gray-600' : ''}`}
+          class={`page-title w-full text-3xl font-bold outline-none border-none bg-transparent ${darkMode() ? 'text-gray-100 placeholder-gray-600' : ''}`}
         />
       </div>
 
+      <Show when={documentError()}><p role="alert" class="storage-notice">문서가 손상되어 읽기 전용으로 열었습니다. JSON 백업으로 원본을 보존해주세요. {documentError()}</p></Show>
       {/* Toolbar */}
       <Toolbar editor={editor()} version={editorVersion()} pageTitle={props.pageTitle} pageId={props.pageId} onCreateSubPage={props.onCreateSubPage} contextMenuPosition={contextMenuPosition()} onCloseContextMenu={() => setContextMenuPosition(null)} />
 

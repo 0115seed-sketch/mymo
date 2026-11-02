@@ -1,335 +1,163 @@
-﻿import { createSignal } from 'solid-js'
-import { db, type Page } from '../db'
-import {
-  syncPageToCloud,
-  deletePageFromCloud,
-} from './sync'
-import { user } from './auth'
-
-const generateId = () => crypto.randomUUID()
+import { createSignal } from 'solid-js'
+import { db, nextTime, putLocalPages, repairPageCycles, removeLocalPages, type AppDatabase, type Page } from '../db'
+import { trackWrite } from './persistence'
 
 export function createPageStore() {
   const [pages, setPages] = createSignal<Page[]>([])
   const [currentPageId, setCurrentPageId] = createSignal<string | null>(null)
   const [showTrash, setShowTrash] = createSignal(false)
-
-  // --- Load ---
+  let loadVersion = 0
   const loadPages = async () => {
-    const all = await db.pages.orderBy('updatedAt').reverse().toArray()
+    const source = db
+    const version = ++loadVersion
+    await repairPageCycles(source)
+    const all = await source.pages.orderBy('updatedAt').reverse().toArray()
+    if (db !== source || version !== loadVersion) return
     setPages(all)
-    const current = currentPageId()
-    const active = all.filter(p => !p.deleted)
-    if (active.length > 0 && (!current || !active.find(p => p.id === current))) {
-      setCurrentPageId(active[0].id)
-    }
+    if (!all.some(p => p.id === currentPageId())) setCurrentPageId(all.find(p => !p.deleted)?.id ?? null)
   }
-
-  const loadAll = async () => {
-    await loadPages()
-  }
-
-  // --- Derived ---
+  const reset = () => { loadVersion++; setPages([]); setCurrentPageId(null); setShowTrash(false) }
   const activePages = () => pages().filter(p => !p.deleted)
-  const hiddenPages = () => activePages().filter(p => p.hidden)
-  const trashedPages = () =>
-    pages().filter(p =>
-      p.deleted &&
-      (!p.parentPageId || !pageById(p.parentPageId)?.deleted)
-    )
-  const rootPages = () => activePages().filter(p => !p.hidden && !p.parentPageId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-  const subPages = (parentPageId: string) => activePages().filter(p => !p.hidden && p.parentPageId === parentPageId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-  const currentPage = () => pages().find(p => p.id === currentPageId()) ?? null
   const pageById = (id: string) => pages().find(p => p.id === id) ?? null
+  const hiddenPages = () => activePages().filter(p => p.hidden)
+  const trashedPages = () => pages().filter(p => p.deleted && (!p.parentPageId || !pageById(p.parentPageId)?.deleted))
+  // Broken legacy/cross-device parents must not make a page inaccessible.
+  const rootPages = () => activePages().filter(p => !p.hidden && (!p.parentPageId || !pageById(p.parentPageId) || pageById(p.parentPageId)?.deleted))
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+  const subPages = (parentId: string) => activePages().filter(p => !p.hidden && p.parentPageId === parentId)
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+  const currentPage = () => pageById(currentPageId() ?? '')
 
-  // 링크가 가리키는 대상 페이지를 추정한다.
-  const resolveLinkedPageId = (href: string): string | null => {
-    if (!href || !href.startsWith('#')) return null
-    const raw = href.slice(1)
-    if (!raw) return null
-
-    const decoded = (() => {
-      try {
-        return decodeURIComponent(raw)
-      } catch {
-        return raw
-      }
-    })()
-
-    const direct = pageById(raw) ?? pageById(decoded)
-    if (direct) return direct.id
-
-    const pathCandidate = raw.startsWith('/') ? raw : (decoded.startsWith('/') ? decoded : null)
-    if (pathCandidate) {
-      const byPath = findPageByPath(pathCandidate)
-      if (byPath) return byPath.id
+  const descendants = (all: Page[], id: string) => {
+    const seen = new Set<string>([id])
+    const queue = [id]
+    for (let i = 0; i < queue.length; i++) {
+      for (const p of all) if (p.parentPageId === queue[i] && !seen.has(p.id)) { seen.add(p.id); queue.push(p.id) }
     }
-
-    return null
+    return queue
   }
+  const transaction = <T>(database: AppDatabase, task: () => Promise<T>) => database.transaction('rw',
+    [database.pages, database.tombstones, database.outbox, database.syncMeta], task)
+  const mutate = <T>(task: (database: AppDatabase) => Promise<T>) => {
+    const database = db
+    return trackWrite(task(database).then(async result => {
+      if (database === db) await loadPages()
+      window.dispatchEvent(new Event('mymo:local-change'))
+      return result
+    }))
+  }
+  const changed = (page: Page, updates: Partial<Page>): Page => ({ ...page, ...updates, updatedAt: nextTime(page.updatedAt) })
 
-  // 제목 변경 시, 해당 페이지를 참조하는 자동 생성 링크를 ID 기반 링크로 정규화하고 라벨을 동기화.
-  const syncAutoSubPageLinks = async (targetPageId: string, targetTitle: string) => {
-    const changed = new Map<string, { content: string; updatedAt: number }>()
+  const createPage = (title = '새 페이지', parentPageId: string | null = null, navigate = true) => mutate(database => transaction(database, async () => {
+    if (parentPageId) {
+      const parent = await database.pages.get(parentPageId)
+      if (!parent || parent.deleted) throw new Error('부모 페이지가 없습니다.')
+    }
+    const siblings = (await database.pages.toArray()).filter(p => !p.deleted && p.parentPageId === parentPageId)
+    const now = Date.now()
+    const page: Page = { id: crypto.randomUUID(), title, content: '', parentPageId, folderId: null,
+      hidden: false, deleted: false, order: 0, createdAt: now, updatedAt: now }
+    await putLocalPages(database, [page, ...siblings.map(p => changed(p, { order: p.order + 1 }))])
+    if (database === db && navigate) setCurrentPageId(page.id)
+    return page
+  }))
 
-    for (const page of pages()) {
-      if (!page.content) continue
-
-      let doc: any
-      try {
-        doc = JSON.parse(page.content)
-      } catch {
-        continue
-      }
-
-      let touched = false
-
-      const walk = (node: any) => {
-        if (!node || typeof node !== 'object') return
-
-        if (Array.isArray(node.content)) {
-          node.content.forEach(walk)
-        }
-
-        if (!Array.isArray(node.marks)) return
-
-        for (const mark of node.marks) {
-          if (!mark || mark.type !== 'link') continue
-          const href = String(mark.attrs?.href ?? '')
-          const linkedPageId = resolveLinkedPageId(href)
-          if (linkedPageId !== targetPageId) continue
-
-          if (href !== `#${targetPageId}`) {
-            mark.attrs = { ...(mark.attrs ?? {}), href: `#${targetPageId}`, target: null }
-            touched = true
-          }
-
-          if (typeof node.text === 'string' && (node.text.startsWith('📄 ') || node.text === targetTitle)) {
-            const nextText = `📄 ${targetTitle}`
-            if (node.text !== nextText) {
-              node.text = nextText
+  const updatePage = (id: string, updates: Partial<Pick<Page, 'title' | 'content'>>, base: { content?: string; title?: string } = {}) => mutate(database => transaction(database, async () => {
+    const old = await database.pages.get(id)
+    if (!old || old.deleted) return
+    if ((updates.title === undefined || updates.title === old.title) && (updates.content === undefined || updates.content === old.content)) return
+    const updated = changed(old, updates)
+    const modified: Page[] = [updated]
+    if ((base.content !== undefined && base.content !== old.content && updates.content !== old.content) ||
+        (base.title !== undefined && base.title !== old.title && updates.title !== old.title)) {
+      // A remote/tab update can land between the input event and this transaction.
+      // Keep the unseen version rather than silently replacing it.
+      modified.push({ ...old, id: crypto.randomUUID(), title: old.title + ' (충돌 복사본)', parentPageId: null, folderId: null,
+        hidden: false, deleted: false, updatedAt: nextTime(old.updatedAt) })
+      window.dispatchEvent(new Event('mymo:conflict'))
+    }
+    if (updates.title !== undefined) {
+      for (const page of await database.pages.toArray()) {
+        if (page.id === id || !page.content) continue
+        let doc: any
+        try { doc = JSON.parse(page.content) } catch { continue }
+        let touched = false
+        const walk = (node: any) => {
+          if (!node || typeof node !== 'object') return
+          if (Array.isArray(node.content)) node.content.forEach(walk)
+          for (const mark of node.marks ?? []) {
+            if (mark.type !== 'link') continue
+            const href = String(mark.attrs?.href ?? '')
+            if (href !== '#' + id) continue
+            if (typeof node.text === 'string' && (node.text.startsWith('📄 ') || node.text === old.title)) {
+              node.text = '📄 ' + updates.title
               touched = true
             }
           }
         }
-      }
-
-      walk(doc)
-
-      if (touched) {
-        const updatedAt = Date.now()
-        changed.set(page.id, { content: JSON.stringify(doc), updatedAt })
+        walk(doc)
+        if (touched) modified.push(changed(page, { content: JSON.stringify(doc) }))
       }
     }
+    await putLocalPages(database, modified)
+  }))
 
-    if (changed.size === 0) return
+  const setDeleted = (id: string, deleted: boolean) => mutate(database => transaction(database, async () => {
+    const all = await database.pages.toArray()
+    const ids = new Set(descendants(all, id))
+    await putLocalPages(database, all.filter(p => ids.has(p.id)).map(p => changed(p, { deleted })))
+    if (database === db && deleted && ids.has(currentPageId() ?? '')) setCurrentPageId(all.find(p => !p.deleted && !ids.has(p.id))?.id ?? null)
+  }))
+  const trashPage = (id: string) => setDeleted(id, true)
+  const restorePage = (id: string) => setDeleted(id, false)
+  const setPageHidden = (id: string, hidden: boolean) => mutate(database => transaction(database, async () => {
+    const page = await database.pages.get(id)
+    if (page) await putLocalPages(database, [changed(page, { hidden })])
+  }))
+  const deletePage = (id: string) => mutate(database => transaction(database, async () => {
+    const all = await database.pages.toArray()
+    await removeLocalPages(database, descendants(all, id))
+  }))
+  const emptyTrash = () => mutate(database => transaction(database, async () => {
+    const ids = (await database.pages.toArray()).filter(p => p.deleted).map(p => p.id)
+    await removeLocalPages(database, ids)
+  }))
 
-    for (const [id, value] of changed) {
-      await db.pages.update(id, value)
+  // Move and reorder atomically: the target parent must exist and cannot be a descendant.
+  const movePageToParent = (pageId: string, parentId: string | null, newIndex?: number) => mutate(database => transaction(database, async () => {
+    const all = await database.pages.toArray()
+    const page = all.find(p => p.id === pageId && !p.deleted)
+    if (!page) return
+    if (parentId) {
+      if (descendants(all, pageId).includes(parentId)) throw new Error('자신 또는 하위 페이지 아래로 이동할 수 없습니다.')
+      if (!all.some(p => p.id === parentId && !p.deleted)) throw new Error('부모 페이지가 없습니다.')
     }
-
-    setPages(prev => prev.map(p => {
-      const value = changed.get(p.id)
-      return value ? { ...p, content: value.content, updatedAt: value.updatedAt } : p
-    }))
-
-    const uid = user()?.uid
-    if (uid) {
-      for (const id of changed.keys()) {
-        const page = await db.pages.get(id)
-        if (page) syncPageToCloud(uid, page)
-      }
-    }
-  }
-
-  // --- Page CRUD ---
-  const createPage = async (title = '새 페이지', parentPageId: string | null = null, navigate = true) => {
-    const now = Date.now()
-    const siblings = pages().filter(p => !p.deleted && p.parentPageId === parentPageId)
-    for (const s of siblings) {
-      await db.pages.update(s.id, { order: (s.order ?? 0) + 1 })
-    }
-    const page: Page = {
-      id: generateId(),
-      title,
-      content: '',
-      folderId: null,
-      parentPageId,
-      deleted: false,
-      hidden: false,
-      order: 0,
-      createdAt: now,
-      updatedAt: now,
-    }
-    await db.pages.add(page)
-    setPages(prev => {
-      const updated = prev.map(p =>
-        (!p.deleted && p.parentPageId === parentPageId)
-          ? { ...p, order: (p.order ?? 0) + 1 }
-          : p
-      )
-      return [page, ...updated]
-    })
-    if (navigate) setCurrentPageId(page.id)
-    const uid = user()?.uid
-    if (uid) syncPageToCloud(uid, page)
-    return page
-  }
-
-  const updatePage = async (id: string, updates: Partial<Pick<Page, 'title' | 'content'>>) => {
-    const updatedAt = Date.now()
-    await db.pages.update(id, { ...updates, updatedAt })
-    setPages(prev => prev.map(p =>
-      p.id === id ? { ...p, ...updates, updatedAt } : p
-    ))
-    const uid = user()?.uid
-    if (uid) {
-      const page = await db.pages.get(id)
-      if (page) syncPageToCloud(uid, page)
-    }
-
-    if (typeof updates.title === 'string') {
-      await syncAutoSubPageLinks(id, updates.title)
-    }
-  }
-
-  // 하위 페이지 ID를 재귀적으로 수집
-  const getDescendantIds = (parentId: string): string[] => {
-    const children = pages().filter(p => p.parentPageId === parentId)
-    const ids: string[] = []
-    for (const child of children) {
-      ids.push(child.id)
-      ids.push(...getDescendantIds(child.id))
-    }
-    return ids
-  }
-
-  const trashPage = async (id: string) => {
-    const updatedAt = Date.now()
-    const toTrash = [id, ...getDescendantIds(id)]
-    for (const pid of toTrash) {
-      await db.pages.update(pid, { deleted: true, updatedAt })
-    }
-    setPages(prev => prev.map(p =>
-      toTrash.includes(p.id) ? { ...p, deleted: true, updatedAt } : p
-    ))
-    if (currentPageId() === id) {
-      const active = pages().filter(p => !p.deleted && !toTrash.includes(p.id))
-      setCurrentPageId(active.length > 0 ? active[0].id : null)
-    }
-    const uid = user()?.uid
-    if (uid) {
-      for (const pid of toTrash) {
-        const page = await db.pages.get(pid)
-        if (page) syncPageToCloud(uid, page)
-      }
-    }
-  }
-
-  const restorePage = async (id: string) => {
-    const updatedAt = Date.now()
-    const toRestore = [id, ...getDescendantIds(id)]
-    for (const pid of toRestore) {
-      await db.pages.update(pid, { deleted: false, updatedAt })
-    }
-    setPages(prev => prev.map(p =>
-      toRestore.includes(p.id) ? { ...p, deleted: false, updatedAt } : p
-    ))
-    const uid = user()?.uid
-    if (uid) {
-      for (const pid of toRestore) {
-        const page = await db.pages.get(pid)
-        if (page) syncPageToCloud(uid, page)
-      }
-    }
-  }
-
-  const setPageHidden = async (id: string, hidden: boolean) => {
-    const updatedAt = Date.now()
-    await db.pages.update(id, { hidden, updatedAt })
-    setPages(prev => prev.map(p => p.id === id ? { ...p, hidden, updatedAt } : p))
-    const uid = user()?.uid
-    if (uid) {
-      const page = await db.pages.get(id)
-      if (page) syncPageToCloud(uid, page)
-    }
-  }
-
-  const deletePage = async (id: string) => {
-    const toDelete = [id, ...getDescendantIds(id)]
-    await db.pages.bulkDelete(toDelete)
-    const currentId = currentPageId()
-    setPages(prev => prev.filter(p => !toDelete.includes(p.id)))
-    if (toDelete.includes(currentId!)) {
-      const active = pages().filter(p => !p.deleted && !toDelete.includes(p.id))
-      setCurrentPageId(active.length > 0 ? active[0].id : null)
-    }
-    const uid = user()?.uid
-    if (uid) toDelete.forEach(pid => deletePageFromCloud(uid, pid))
-  }
-
-  const emptyTrash = async () => {
-    const trashed = pages().filter(p => p.deleted)
-    const ids = trashed.map(p => p.id)
-    await db.pages.bulkDelete(ids)
-    setPages(prev => prev.filter(p => !p.deleted))
-    const uid = user()?.uid
-    if (uid) ids.forEach(id => deletePageFromCloud(uid, id))
-  }
-
-  // --- Reorder pages (same parent) ---
-  const reorderPage = async (pageId: string, newIndex: number, parentPageId: string | null) => {
-    const siblings = activePages()
-      .filter(p => p.parentPageId === parentPageId)
-      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-
+    const siblings = all.filter(p => !p.deleted && p.parentPageId === parentId).sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
     const oldIndex = siblings.findIndex(p => p.id === pageId)
-    if (oldIndex === -1 || oldIndex === newIndex) return
+    const rest = siblings.filter(p => p.id !== pageId)
+    const index = newIndex === undefined ? rest.length : Math.max(0, Math.min(rest.length, oldIndex >= 0 && oldIndex < newIndex ? newIndex - 1 : newIndex))
+    rest.splice(index, 0, { ...page, parentPageId: parentId, folderId: null })
+    const updates = rest.filter((p, i) => p.id === pageId || p.order !== i).map(p => changed(p, { order: rest.findIndex(r => r.id === p.id) }))
+    await putLocalPages(database, updates)
+  }))
+  const reorderPage = (pageId: string, index: number, parentId: string | null) => movePageToParent(pageId, parentId, index)
 
-    const reordered = [...siblings]
-    const [moved] = reordered.splice(oldIndex, 1)
-    const adjustedIndex = oldIndex < newIndex ? newIndex - 1 : newIndex
-    reordered.splice(adjustedIndex, 0, moved)
-
-    const uid = user()?.uid
-    for (let i = 0; i < reordered.length; i++) {
-      await db.pages.update(reordered[i].id, { order: i })
-      if (uid) {
-        const page = await db.pages.get(reordered[i].id)
-        if (page) syncPageToCloud(uid, page)
-      }
-    }
-    setPages(prev => prev.map(p => {
-      const idx = reordered.findIndex(r => r.id === p.id)
-      return idx !== -1 ? { ...p, order: idx } : p
-    }))
-  }
-
-  // 페이지의 조상 ID 배열 (root → ... → parent 순서)
-  const getAncestorIds = (pageId: string): string[] => {
+  const getAncestorIds = (pageId: string) => {
     const ids: string[] = []
+    const seen = new Set([pageId])
     let current = pageById(pageId)
-    while (current && current.parentPageId) {
+    while (current?.parentPageId && !seen.has(current.parentPageId)) {
+      seen.add(current.parentPageId)
+      if (!pageById(current.parentPageId)) break
       ids.unshift(current.parentPageId)
       current = pageById(current.parentPageId)
     }
     return ids
   }
-
-  // 페이지 경로 문자열 (페이지명 기반): /페이지1/하위1/하위2
-  const getPagePath = (pageId: string): string => {
-    const parts: string[] = []
-    let current = pageById(pageId)
-    while (current) {
-      parts.unshift(encodeURIComponent(current.title || current.id))
-      current = current.parentPageId ? pageById(current.parentPageId) : null
-    }
-    return '/' + parts.join('/')
-  }
-
-  // 페이지 경로 문자열로 페이지 찾기
+  const getPagePath = (id: string) => '/' + [...getAncestorIds(id), id].map(pid => encodeURIComponent(pageById(pid)?.title || pid)).join('/')
   const findPageByPath = (path: string): Page | null => {
-    const parts = path.split('/').filter(Boolean).map(decodeURIComponent)
-    if (parts.length === 0) return null
+    let parts: string[]
+    try { parts = path.split('/').filter(Boolean).map(decodeURIComponent) } catch { return null }
     let candidates = rootPages()
     let found: Page | null = null
     for (const part of parts) {
@@ -339,49 +167,7 @@ export function createPageStore() {
     }
     return found
   }
-
-  // --- Move page to different parent ---
-  const movePageToParent = async (pageId: string, newParentPageId: string | null) => {
-    const siblings = activePages().filter(p => p.parentPageId === newParentPageId)
-    const maxOrder = siblings.length > 0 ? Math.max(...siblings.map(p => p.order ?? 0)) + 1 : 0
-    const updatedAt = Date.now()
-    await db.pages.update(pageId, { parentPageId: newParentPageId, folderId: null, order: maxOrder, updatedAt })
-    setPages(prev => prev.map(p =>
-      p.id === pageId ? { ...p, parentPageId: newParentPageId, folderId: null, order: maxOrder, updatedAt } : p
-    ))
-    const uid = user()?.uid
-    if (uid) {
-      const page = await db.pages.get(pageId)
-      if (page) syncPageToCloud(uid, page)
-    }
-  }
-
-  return {
-    pages,
-    currentPageId,
-    currentPage,
-    showTrash,
-    setShowTrash,
-    setCurrentPageId,
-    activePages,
-    hiddenPages,
-    trashedPages,
-    rootPages,
-    subPages,
-    pageById,
-    loadAll,
-    loadPages,
-    createPage,
-    updatePage,
-    trashPage,
-    restorePage,
-    setPageHidden,
-    deletePage,
-    emptyTrash,
-    reorderPage,
-    movePageToParent,
-    getAncestorIds,
-    getPagePath,
-    findPageByPath,
-  }
+  return { pages, currentPageId, currentPage, showTrash, setShowTrash, setCurrentPageId, activePages, hiddenPages,
+    trashedPages, rootPages, subPages, pageById, loadAll: loadPages, loadPages, reset, createPage, updatePage,
+    trashPage, restorePage, setPageHidden, deletePage, emptyTrash, reorderPage, movePageToParent, getAncestorIds, getPagePath, findPageByPath }
 }

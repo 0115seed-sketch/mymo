@@ -1,126 +1,140 @@
-/**
- * sync.ts — 로컬 우선(Local-First) Firestore 동기화
- *
- * 규칙:
- * - 모든 쓰기는 IndexedDB에 먼저 저장 (UI 즉시 반영)
- * - Firestore 동기화는 항상 백그라운드에서 fire-and-forget
- * - 충돌 해결: updatedAt 기준 최신 값 우선 (Last Write Wins)
- */
-
-import {
-  collection,
-  doc,
-  setDoc,
-  deleteDoc,
-  onSnapshot,
-  getDocs,
-  type Unsubscribe,
-} from 'firebase/firestore'
+import { createSignal } from 'solid-js'
+import { liveQuery } from 'dexie'
+import { collection, doc, getDocsFromServer, onSnapshot, runTransaction } from 'firebase/firestore'
 import { db as firestore } from '../lib/firebase'
-import { db as localDb, type Page, type Folder } from '../db'
+import { type AppDatabase, type CloudPage, type Folder, isTombstone, revisionOf } from '../db'
+import { validatePage } from '../utils/pageValidation'
+import { PageSyncEngine, type RemotePages } from './syncEngine'
 
-// ── 백그라운드 Firestore 쓰기 (에러 무시 — 로컬은 이미 저장됨) ──────────────
-
-export const syncPageToCloud = (userId: string, page: Page) => {
-  const ref = doc(firestore, 'users', userId, 'pages', page.id)
-  setDoc(ref, page).catch(() => {/* 오프라인이면 Firestore가 큐에 보관 */})
+type SyncState = { state: 'local' | 'syncing' | 'synced' | 'offline' | 'error'; pending: number; conflicts: number; message: string }
+export const [syncStatus, setSyncStatus] = createSignal<SyncState>({ state: 'local', pending: 0, conflicts: 0, message: '' })
+let stopCurrent: (() => void) | undefined
+let retryCurrent: (() => void) | undefined
+export const retrySync = () => retryCurrent?.()
+export function stopRealtimeSync() {
+  stopCurrent?.()
+  stopCurrent = undefined
+  retryCurrent = undefined
+  setSyncStatus({ state: 'local', pending: 0, conflicts: 0, message: '' })
 }
-
-export const syncFolderToCloud = (userId: string, folder: Folder) => {
-  const ref = doc(firestore, 'users', userId, 'folders', folder.id)
-  setDoc(ref, folder).catch(() => {})
-}
-
-export const deletePageFromCloud = (userId: string, pageId: string) => {
-  const ref = doc(firestore, 'users', userId, 'pages', pageId)
-  deleteDoc(ref).catch(() => {})
-}
-
-export const deleteFolderFromCloud = (userId: string, folderId: string) => {
-  const ref = doc(firestore, 'users', userId, 'folders', folderId)
-  deleteDoc(ref).catch(() => {})
-}
-
-// ── 로그인 시 Firestore → IndexedDB 초기 병합 ───────────────────────────────
-
-export const pullFromCloud = async (userId: string) => {
-  const [pagesSnap, foldersSnap] = await Promise.all([
-    getDocs(collection(firestore, 'users', userId, 'pages')),
-    getDocs(collection(firestore, 'users', userId, 'folders')),
-  ])
-
-  // 페이지: 클라우드 데이터가 더 최신이면 로컬에 덮어씀
-  for (const docSnap of pagesSnap.docs) {
-    const cloudPage = docSnap.data() as Page
-    const localPage = await localDb.pages.get(cloudPage.id)
-    if (!localPage || cloudPage.updatedAt > localPage.updatedAt) {
-      await localDb.pages.put(cloudPage)
-    }
-  }
-
-  // 폴더: 로컬에 없는 항목만 추가
-  for (const docSnap of foldersSnap.docs) {
-    const cloudFolder = docSnap.data() as Folder
-    const localFolder = await localDb.folders.get(cloudFolder.id)
-    if (!localFolder) {
-      await localDb.folders.put(cloudFolder)
-    }
-  }
-}
-
-// ── 실시간 구독: 다른 기기 변경 → 로컬 IndexedDB 갱신 ──────────────────────
-
-let unsubscribePages: Unsubscribe | null = null
-let unsubscribeFolders: Unsubscribe | null = null
-
-export const startRealtimeSync = (
-  userId: string,
-  onRemoteChange: () => void,
-) => {
-  // 기존 구독 해제
+export function startRealtimeSync(userId: string, database: AppDatabase) {
   stopRealtimeSync()
-
-  unsubscribePages = onSnapshot(
-    collection(firestore, 'users', userId, 'pages'),
-    (snap) => {
-      snap.docChanges().forEach(async (change) => {
-        const cloudPage = change.doc.data() as Page
-        if (change.type === 'removed') {
-          await localDb.pages.delete(cloudPage.id)
-        } else {
-          const localPage = await localDb.pages.get(cloudPage.id)
-          // 클라우드가 더 최신일 때만 로컬 갱신 (내 방금 저장한 값을 덮어쓰지 않음)
-          if (!localPage || cloudPage.updatedAt > localPage.updatedAt) {
-            await localDb.pages.put(cloudPage)
-            onRemoteChange()
-          }
-        }
+  let active = true
+  let busy = false
+  let rerun = false
+  let pulled = false
+  let foldersDirty = true
+  const pages = collection(firestore, 'users', userId, 'pages')
+  const folders = collection(firestore, 'users', userId, 'folders')
+  // Folders are legacy metadata (there is no folder editor); preserve both sides.
+  const syncFolderMetadata = async () => {
+    const snapshot = await getDocsFromServer(folders)
+    if (!active) return
+    const remote = new Map<string, Folder>()
+    for (const item of snapshot.docs) {
+      const value = item.data() as Folder
+      if (value.id !== item.id || typeof value.name !== 'string' || !Number.isFinite(value.createdAt) || !Number.isFinite(value.order)) throw new Error('클라우드 폴더 형식을 확인해주세요.')
+      remote.set(item.id, { id: value.id, name: value.name, order: value.order, createdAt: value.createdAt })
+    }
+    await database.transaction('rw', database.folders, async () => {
+      for (const folder of remote.values()) if (!await database.folders.get(folder.id)) await database.folders.put(folder)
+    })
+    for (const folder of await database.folders.toArray()) {
+      if (!active) return
+      if (!remote.has(folder.id)) await runTransaction(firestore, async tx => {
+        const ref = doc(folders, folder.id)
+        if (!(await tx.get(ref)).exists()) tx.set(ref, folder)
       })
-    },
-  )
+    }
+  }
 
-  unsubscribeFolders = onSnapshot(
-    collection(firestore, 'users', userId, 'folders'),
-    (snap) => {
-      snap.docChanges().forEach(async (change) => {
-        const cloudFolder = change.doc.data() as Folder
-        if (change.type === 'removed') {
-          await localDb.folders.delete(cloudFolder.id)
-        } else {
-          const localFolder = await localDb.folders.get(cloudFolder.id)
-          if (!localFolder) {
-            await localDb.folders.put(cloudFolder)
-            onRemoteChange()
-          }
+  const remote: RemotePages = {
+    list: async () => (await getDocsFromServer(pages)).docs.map(snapshot => {
+      const page = validatePage(snapshot.data())
+      if (page.id !== snapshot.id) throw new Error('클라우드 페이지 식별자가 일치하지 않습니다.')
+      return page
+    }),
+    compareAndSet: async change => runTransaction(firestore, async transaction => {
+      const ref = doc(pages, change.id)
+      const snap = await transaction.get(ref)
+      const remotePage: CloudPage | null = snap.exists() ? validatePage(snap.data()) : null
+      if (remotePage && remotePage.id !== change.id) throw new Error('클라우드 페이지 식별자가 일치하지 않습니다.')
+      const remoteRevision = remotePage ? revisionOf(remotePage) : null
+      if (remotePage && revisionOf(change.page) === remoteRevision) return { written: true, remote: remotePage }
+      if ((remotePage && isTombstone(remotePage)) || remoteRevision !== change.baseRevision) return { written: false, remote: remotePage }
+      transaction.set(ref, change.page)
+      return { written: true, remote: change.page }
+    }),
+  }
+  const engine = new PageSyncEngine(database, remote, () => {
+    if (active) setSyncStatus(s => ({ ...s, conflicts: s.conflicts + 1 }))
+  })
+  const failure = async (error: unknown) => {
+    if (!active) return
+    const pending = await database.outbox.count()
+    if (!active) return
+    const offline = !navigator.onLine || (error as { code?: string }).code === 'unavailable'
+    setSyncStatus(s => ({ ...s, pending, state: offline ? 'offline' : 'error', message: error instanceof Error ? error.message : String(error) }))
+  }
+  const run = async () => {
+    if (!active) return
+    if (busy) { rerun = true; return }
+    busy = true
+    try {
+      do {
+        rerun = false
+        if (!active) break
+        setSyncStatus(s => ({ ...s, state: 'syncing' }))
+        if (!pulled) { await engine.pull(); if (!active) break; pulled = true }
+        await engine.flush()
+        if (foldersDirty) { foldersDirty = false; try { await syncFolderMetadata() } catch (error) { foldersDirty = true; throw error } }
+        if (!active) break
+        const pending = await database.outbox.count()
+        if (!active) break
+        setSyncStatus(s => ({ ...s, pending, state: pending ? 'syncing' : 'synced', message: '' }))
+      } while (rerun && active)
+    } catch (error) { await failure(error) }
+    finally { busy = false }
+  }
+  const retry = () => { void run() }
+  retryCurrent = retry
+  const unsubscribe = onSnapshot(pages, { includeMetadataChanges: true }, snapshot => {
+    if (!active || snapshot.metadata.fromCache) return
+    void (async () => {
+      for (const change of snapshot.docChanges()) {
+        if (!active) return
+        if (change.doc.metadata.hasPendingWrites) continue
+        if (change.type === 'removed') await engine.removed(change.doc.id)
+        else {
+          const page = validatePage(change.doc.data())
+          if (page.id !== change.doc.id) throw new Error('클라우드 페이지 식별자가 일치하지 않습니다.')
+          await engine.receive(page)
         }
-      })
-    },
-  )
-}
-
-export const stopRealtimeSync = () => {
-  unsubscribePages?.()
-  unsubscribeFolders?.()
-  unsubscribePages = null
-  unsubscribeFolders = null
+      }
+      retry()
+    })().catch(failure)
+  }, failure)
+  const outboxSub = liveQuery(() => database.outbox.toArray()).subscribe({ next: changes => {
+    if (!active) return
+    setSyncStatus(s => ({ ...s, pending: changes.length }))
+    if (changes.length) retry()
+  }, error: failure })
+  const folderSub = liveQuery(() => database.folders.toArray()).subscribe({ next: () => { if (active) { foldersDirty = true; retry() } }, error: failure })
+  const onConflict = () => { if (active) setSyncStatus(s => ({ ...s, conflicts: s.conflicts + 1 })) }
+  window.addEventListener('mymo:conflict', onConflict)
+  const timer = window.setInterval(retry, 15000)
+  window.addEventListener('online', retry)
+  window.addEventListener('mymo:local-change', retry)
+  stopCurrent = () => {
+    active = false
+    engine.stop()
+    unsubscribe()
+    outboxSub.unsubscribe()
+    folderSub.unsubscribe()
+    window.removeEventListener('mymo:conflict', onConflict)
+    clearInterval(timer)
+    window.removeEventListener('online', retry)
+    window.removeEventListener('mymo:local-change', retry)
+  }
+  retry()
 }

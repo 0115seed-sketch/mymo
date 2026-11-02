@@ -1,28 +1,60 @@
-## Usage
+# mymo
 
-```bash
-$ npm install # or pnpm install or yarn install
+SolidJS와 TipTap으로 만든 개인 메모·할 일 웹앱입니다. 페이지와 하위 페이지, 표, 이미지, 다단 배치, 반복 블록 삽입과 날짜 도구를 제공합니다.
+
+## 실행 및 검증
+
+Node.js 22.12 이상과 pnpm 9를 사용합니다.
+
+```sh
+pnpm install --frozen-lockfile
+pnpm dev
+pnpm test
+pnpm build
 ```
 
-### Learn more on the [Solid Website](https://solidjs.com) and come chat with us on our [Discord](https://discord.com/invite/solidjs)
+`master`에 반영하면 테스트와 빌드를 통과한 뒤 GitHub Pages의 `/mymo/` 경로로 배포합니다. PR에도 자동 검사를 실행합니다.
 
-## Available Scripts
+## 자료 저장과 계정 전환
 
-In the project directory, you can run:
+- 로그인하지 않으면 이 브라우저의 IndexedDB에 저장합니다.
+- Google 계정별로 별도의 IndexedDB를 사용합니다. 로그아웃해도 해당 계정의 자료를 삭제하지 않으며, 다른 계정의 작업 공간으로 자동 복사하지 않습니다.
+- 계정 분리 도입 전에 저장한 기존 자료는 원래 DB(`ssaemlinderDB`)에 그대로 남아 있으며 **로그아웃 상태에서 볼 수 있습니다**. 이 자료의 소유자를 자동으로 추정하거나 다음 로그인 계정에 업로드하지 않습니다.
+- 기존 기기 자료를 계정으로 옮기려면 로그아웃 → 설정에서 JSON 백업 → 원하는 계정으로 로그인 → JSON 불러오기를 사용합니다. 불러오기는 대상 계정의 현재 자료를 교체하므로 필요한 자료는 먼저 백업해주세요.
+- 다른 기기도 최신 화면으로 새로고침해서 사용하세요. 이전 버전 클라이언트는 새로운 동기화 규약을 따르지 않습니다.
 
-### `npm run dev`
+## 저장 및 여러 기기 동기화
 
-Runs the app in the development mode.<br>
-Open [http://localhost:5173](http://localhost:5173) to view it in the browser.
+- 본문 입력 시 바로 로컬 저장 트랜잭션을 시작합니다. 페이지 이동·로그아웃·백업은 대기 중인 쓰기가 완료된 뒤 진행합니다.
+- 로컬 변경과 업로드 대기 항목을 하나의 IndexedDB 트랜잭션에 저장합니다. 네트워크가 끊기거나 탭을 다시 열어도 업로드 대기는 남습니다.
+- 로그인 시 로컬 자료와 클라우드 자료를 양방향으로 병합합니다. 온라인 복귀와 15초 간격으로 재시도하며, 상태 표시줄에서도 수동 재시도할 수 있습니다.
+- Firestore 트랜잭션에서 기준 revision을 검사합니다. 다른 기기가 먼저 변경했다면 본문을 조용히 덮어쓰지 않고 `충돌 복사본`을 별도 페이지로 보존합니다. 복사본은 루트에 표시되며 다시 동기화됩니다.
+- 영구 삭제는 내용을 비운 삭제 기록(tombstone)으로 전파합니다. 최신 클라이언트의 오래된 로컬 사본으로 같은 ID를 재생성하지 않습니다. 삭제와 동시에 다른 기기가 수정했다면 해당 수정은 별도 복사본으로 보존합니다.
+- 다른 기기의 변경은 열려 있는 편집기와 목록에도 반영됩니다. 페이지 순서 변경도 revision과 변경 시각을 갱신합니다.
+- 자신의 하위 페이지 아래로 이동할 수 없습니다. 서로 다른 기기의 이동으로 순환이 생기면 동일한 기준으로 연결 하나를 해제하고 모든 문서를 보존합니다.
+- Firebase 로그인·규칙·용량 제한 등으로 전송이 실패하면 기기 자료와 대기 항목을 유지하고 실패 상태를 표시합니다. 상태의 ‘기기에 저장’은 브라우저 저장소 기준이며 외부 백업을 의미하지 않습니다.
 
-### `npm run build`
+Firestore의 실제 접근 규칙은 이 저장소에서 배포하지 않습니다. 사용자별 `users/{uid}/pages`와 기존 `folders` 접근이 인증된 해당 사용자에게만 허용되어 있는지 Firebase 설정에서 관리해야 합니다.
 
-Builds the app for production to the `dist` folder.<br>
-It correctly bundles Solid in production mode and optimizes the build for the best performance.
+## 백업 및 복원
 
-The build is minified and the filenames include the hashes.<br>
-Your app is ready to be deployed!
+- JSON 백업은 대기 중인 편집 저장을 완료한 뒤 하나의 읽기 트랜잭션으로 생성합니다.
+- 불러오기는 페이지·문서 JSON·폴더 형식, 중복 ID, 부모 연결과 순환을 먼저 검사합니다.
+- 교체 전 자료는 작업 공간 내부의 복구 스냅샷으로 보존합니다. 설정 → 내보내기 → **복원 전 자료 내려받기**에서 가장 최근 자료를 내려받을 수 있습니다.
+- 삭제·추가·복구 스냅샷·동기화 대기 등록을 한 트랜잭션으로 처리합니다. 하나라도 실패하면 기존 자료로 되돌아갑니다.
+- 불러온 페이지에는 새 ID를 부여하고 부모·내부 링크·반복 버튼의 템플릿 링크도 함께 바꿉니다. 기존 영구 삭제 기록과 충돌하거나 다른 기기에서 오래된 자료가 되살아나는 것을 막습니다.
+- 자동 JSON 백업은 앱이 열려 있는 동안 브라우저 다운로드를 요청하는 방식입니다. 브라우저의 다운로드 허용 설정이 적용됩니다.
 
-## Deployment
+## 화면
 
-Learn more about deploying your application with the [documentations](https://vite.dev/guide/static-deploy.html)
+640px 미만에서는 사이드바가 전체 화면으로 열립니다. 버튼은 글자에 맞춘 작은 크기로 표시하며, 제목·이동 버튼·계정 도구는 한 줄에 배치합니다. 모바일에서는 중복되는 제목 경로를 숨깁니다. PC 사이드바는 240px를 유지합니다.
+
+## 주요 코드
+
+- `src/db/`: 계정별 DB, 원자적 로컬 쓰기, 삭제 기록, 순환 복구
+- `src/stores/pages.ts`: 페이지 생성·수정·이동·휴지통
+- `src/stores/persistence.ts`: 대기 중인 기기 저장과 오류 상태
+- `src/stores/syncEngine.ts`: 전송 수단과 독립된 충돌·삭제·재시도 처리
+- `src/stores/sync.ts`: Firestore 전송, 실시간 구독, 상태 표시
+- `src/utils/backup.ts`: 백업 검증 및 원자적 복원
+- `tests/data-safety.test.ts`: 실제 Dexie 트랜잭션을 사용하는 회귀 테스트. 서버는 메모리 구현으로 대체하므로 실서비스 계정이나 자료를 수정하지 않습니다.

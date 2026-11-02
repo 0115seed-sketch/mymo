@@ -1,9 +1,10 @@
-﻿import { For, Show, createSignal, createMemo, createEffect } from 'solid-js'
+import { For, Show, createSignal, createMemo, createEffect } from 'solid-js'
 import type { Component } from 'solid-js'
 import type { Page } from '../db'
 import { darkMode } from '../stores/settings'
 
 interface SidebarProps {
+  localDataNotice?: boolean
   rootPages: Page[]
   subPages: (parentPageId: string) => Page[]
   hiddenPages: Page[]
@@ -132,10 +133,6 @@ const Sidebar: Component<SidebarProps> = (props) => {
         props.onMovePageToParent(pageId, asChild)
         if (!expandedPages().has(asChild)) togglePage(asChild)
       } else if (indicator) {
-        const draggedPage = props.pageById(pageId)
-        if (draggedPage && draggedPage.parentPageId !== indicator.parentPageId) {
-          props.onMovePageToParent(pageId, indicator.parentPageId)
-        }
         props.onReorderPage(pageId, indicator.index, indicator.parentPageId)
       }
       setDraggedPageId(null)
@@ -281,6 +278,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
             class="btn text-lg leading-none"
             onClick={() => props.onCreatePage()}
             title="새 페이지"
+            aria-label="새 페이지"
           >+</button>
           <button
             id="sidebar-close"
@@ -302,6 +300,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
         />
       </div>
 
+      <Show when={props.localDataNotice}><p class="storage-notice">기존 기기 자료는 로그아웃 상태에 보관됩니다. 옮기려면 로그아웃 후 백업하고 이 계정에서 불러오세요.</p></Show>
       <div
         class="flex-1 min-h-0 overflow-y-auto py-1"
         onDragOver={handleRootDragOver}

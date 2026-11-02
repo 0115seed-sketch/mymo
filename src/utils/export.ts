@@ -1,4 +1,7 @@
 import type { Editor } from '@tiptap/core'
+import { db } from '../db'
+import { flushPendingWrites, trackWrite } from '../stores/persistence'
+import { validateBackup, restoreBackup } from './backup'
 
 function download(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -154,56 +157,46 @@ export function exportAsText(editor: Editor, title: string) {
   download(blob, `${title || '문서'}.txt`)
 }
 
-// 백업: 전체 DB를 JSON으로 내보내기
+// Read one transactionally consistent snapshot after pending edits are saved.
 export async function backupData() {
-  const { db } = await import('../db')
-  const pages = await db.pages.toArray()
-  const folders = await db.folders.toArray()
-
-  const backup = {
-    app: 'mymo',
-    version: 3,
-    exportedAt: Date.now(),
-    pages,
-    folders,
-  }
-
-  const json = JSON.stringify(backup, null, 2)
-  const blob = new Blob([json], { type: 'application/json;charset=utf-8' })
-  download(blob, buildBackupFilename())
+  const source = db
+  await flushPendingWrites()
+  if (source !== db) throw new Error('계정이 변경되었습니다. 다시 백업해주세요.')
+  const backup = await source.transaction('r', [source.pages, source.folders], async () => ({
+    app: 'mymo', version: 4, exportedAt: Date.now(), pages: await source.pages.toArray(), folders: await source.folders.toArray(),
+  }))
+  download(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' }), buildBackupFilename())
 }
 
-// 불러오기: JSON 파일에서 DB 복원
+export async function exportRecoveryBackup() {
+  const snapshot = await db.recovery.orderBy('createdAt').last()
+  if (!snapshot) { alert('복원 전 저장된 자료가 없습니다.'); return }
+  const backup = { app: 'mymo', version: 4, exportedAt: snapshot.createdAt, pages: snapshot.pages, folders: snapshot.folders }
+  download(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' }), 'mymo-before-restore.json')
+}
+
 export async function restoreData(): Promise<{ success: boolean; message: string }> {
-  return new Promise((resolve) => {
+  const target = db
+  return new Promise(resolve => {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.json'
+    input.oncancel = () => resolve({ success: false, message: '취소되었습니다.' })
     input.onchange = async () => {
       const file = input.files?.[0]
-      if (!file) return resolve({ success: false, message: '파일이 선택되지 않았습니다.' })
-
+      if (!file) return resolve({ success: false, message: '취소되었습니다.' })
       try {
-        const text = await file.text()
-        const data = JSON.parse(text)
-
-        if (data.app !== 'mymo' || !Array.isArray(data.pages) || !Array.isArray(data.folders)) {
-          return resolve({ success: false, message: '올바른 mymo 백업 파일이 아닙니다.' })
+        const data = validateBackup(JSON.parse(await file.text()))
+        if (!confirm('현재 작업 공간을 백업 파일의 페이지 ' + data.pages.length + '개로 교체합니다.\n기존 자료는 복원 전 백업으로 보존됩니다. 계속하시겠습니까?')) {
+          resolve({ success: false, message: '취소되었습니다.' }); return
         }
-
-        if (!confirm(`백업 파일을 불러오면 현재 데이터가 모두 삭제됩니다.\n\n페이지 ${data.pages.length}개, 폴더 ${data.folders.length}개를 복원합니다.\n계속하시겠습니까?`)) {
-          return resolve({ success: false, message: '취소되었습니다.' })
-        }
-
-        const { db } = await import('../db')
-        await db.pages.clear()
-        await db.folders.clear()
-        await db.pages.bulkAdd(data.pages)
-        await db.folders.bulkAdd(data.folders)
-
-        resolve({ success: true, message: `복원 완료! 페이지 ${data.pages.length}개, 폴더 ${data.folders.length}개` })
-      } catch {
-        resolve({ success: false, message: '파일을 읽을 수 없습니다.' })
+        await flushPendingWrites()
+        if (target !== db) throw new Error('계정이 변경되었습니다. 다시 불러와주세요.')
+        await trackWrite(restoreBackup(target, data))
+        window.dispatchEvent(new Event('mymo:local-change'))
+        resolve({ success: true, message: '복원 완료: 페이지 ' + data.pages.length + '개. 기존 자료는 설정의 복원 전 백업에서 내려받을 수 있습니다.' })
+      } catch (error) {
+        resolve({ success: false, message: '복원하지 않았습니다. ' + (error instanceof Error ? error.message : String(error)) })
       }
     }
     input.click()

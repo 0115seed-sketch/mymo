@@ -204,6 +204,7 @@ const SettingsModal: Component<SettingsModalProps> = (props) => {
                 <button class="color-dropdown-item" onClick={() => { import('../utils/export').then(m => m.backupData()) }}>
                   <span style="font-size:1.1em">💾</span> <span>백업 (.json)</span>
                 </button>
+                <button class="color-dropdown-item" onClick={() => { import('../utils/export').then(m => m.exportRecoveryBackup()) }}>복원 전 자료 내려받기</button>
                 <button class="color-dropdown-item" onClick={runRestore}>
                   <span style="font-size:1.1em">📂</span> <span>불러오기</span>
                 </button>
