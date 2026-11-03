@@ -1,4 +1,4 @@
-import { type AppDatabase, type Page, type Folder, type RecoverySnapshot, putLocalPages, removeLocalPages, nextTime, isTombstone } from '../db'
+import { type AppDatabase, type Page, type Folder, type RecoverySnapshot, pageTables, putLocalPages, removeLocalPages, nextTime, isTombstone } from '../db'
 import { validatePage, validateHierarchy } from './pageValidation'
 
 export interface Backup { app: 'mymo'; version: number; exportedAt: number; pages: Page[]; folders: Folder[] }
@@ -46,7 +46,7 @@ export async function restoreBackup(database: AppDatabase, input: unknown) {
   const restored = backup.pages.map(p => ({ ...p, id: ids.get(p.id)!, parentPageId: p.parentPageId ? ids.get(p.parentPageId)! : null,
     folderId: p.folderId ? folders.get(p.folderId) ?? null : null, content: rewriteLinks(p.content, ids), updatedAt: nextTime(p.updatedAt) }))
   const restoredFolders = backup.folders.map(f => ({ ...f, id: folders.get(f.id)!, createdAt: nextTime(f.createdAt) }))
-  await database.transaction('rw', [database.pages, database.folders, database.tombstones, database.outbox, database.syncMeta, database.recovery], async () => {
+  await database.transaction('rw', [...pageTables(database), database.folders, database.recovery], async () => {
     const previous: RecoverySnapshot = { id: crypto.randomUUID(), createdAt: Date.now(), pages: await database.pages.toArray(), folders: await database.folders.toArray() }
     await database.recovery.put(previous)
     await removeLocalPages(database, previous.pages.map(p => p.id))
