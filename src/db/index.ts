@@ -75,6 +75,7 @@ export function activateDatabase(accountId: string | null) {
   }
   return db
 }
+export const readGuestPages = () => guestDatabase.pages.toArray()
 export const hasGuestData = async () => (await guestDatabase.pages.count()) > 0
 export const revisionOf = (page: CloudPage) => page.revision ?? ('legacy:' + page.updatedAt)
 export const isTombstone = (page: CloudPage): page is Tombstone => 'permanentlyDeleted' in page && page.permanentlyDeleted === true

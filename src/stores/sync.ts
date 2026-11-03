@@ -1,20 +1,27 @@
 import { createSignal } from 'solid-js'
 import { liveQuery } from 'dexie'
-import { collection, doc, getDocsFromServer, onSnapshot, runTransaction } from 'firebase/firestore'
+import { collection, doc, getDocsFromServer, onSnapshot, runTransaction, query, where, documentId } from 'firebase/firestore'
 import { db as firestore } from '../lib/firebase'
 import { type AppDatabase, type CloudPage, type Folder, isTombstone, revisionOf } from '../db'
 import { validatePage } from '../utils/pageValidation'
 import { PageSyncEngine, type RemotePages } from './syncEngine'
+import { HISTORY_PREFIX } from '../history/model'
 
 type SyncState = { state: 'local' | 'syncing' | 'synced' | 'offline' | 'error'; pending: number; conflicts: number; message: string }
 export const [syncStatus, setSyncStatus] = createSignal<SyncState>({ state: 'local', pending: 0, conflicts: 0, message: '' })
 let stopCurrent: (() => void) | undefined
 let retryCurrent: (() => void) | undefined
+let flushCurrent: ((refresh?: boolean) => Promise<void>) | undefined
+export async function synchronizeAccount(refresh = false) {
+  if (!flushCurrent) throw new Error('Google 계정으로 로그인해주세요.')
+  await flushCurrent(refresh)
+}
 export const retrySync = () => retryCurrent?.()
 export function stopRealtimeSync() {
   stopCurrent?.()
   stopCurrent = undefined
   retryCurrent = undefined
+  flushCurrent = undefined
   setSyncStatus({ state: 'local', pending: 0, conflicts: 0, message: '' })
 }
 export function startRealtimeSync(userId: string, database: AppDatabase) {
@@ -30,10 +37,13 @@ export function startRealtimeSync(userId: string, database: AppDatabase) {
   const folders = collection(firestore, 'users', userId, 'folders')
   // Folders are legacy metadata (there is no folder editor); preserve both sides.
   const syncFolderMetadata = async () => {
-    const snapshot = await getDocsFromServer(folders)
+    const snapshots = await Promise.all([
+      getDocsFromServer(query(folders, where(documentId(), '<', HISTORY_PREFIX))),
+      getDocsFromServer(query(folders, where(documentId(), '>=', HISTORY_PREFIX + '\uf8ff'))),
+    ])
     if (!active) return
     const remote = new Map<string, Folder>()
-    for (const item of snapshot.docs) {
+    for (const item of snapshots.flatMap(snapshot => snapshot.docs)) {
       const value = item.data() as Folder
       if (value.id !== item.id || typeof value.name !== 'string' || !Number.isFinite(value.createdAt) || !Number.isFinite(value.order)) throw new Error('클라우드 폴더 형식을 확인해주세요.')
       remote.set(item.id, { id: value.id, name: value.name, order: value.order, createdAt: value.createdAt })
@@ -71,6 +81,12 @@ export function startRealtimeSync(userId: string, database: AppDatabase) {
   const engine = new PageSyncEngine(database, remote, () => {
     if (active) setSyncStatus(s => ({ ...s, conflicts: s.conflicts + 1 }))
   })
+  flushCurrent = async (refresh = false) => {
+    if (!active) throw new Error('계정이 변경되었습니다.')
+    if (refresh) await engine.pull()
+    await engine.flush()
+    if (!active || await database.outbox.count()) throw new Error('아직 전송 대기 중인 자료가 있습니다. 동기화 후 다시 시도해주세요.')
+  }
   const failure = async (error: unknown) => {
     if (!active) return
     const pending = await database.outbox.count()

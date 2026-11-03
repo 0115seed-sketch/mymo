@@ -300,7 +300,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
         />
       </div>
 
-      <Show when={props.localDataNotice}><p class="storage-notice">기존 기기 자료는 로그아웃 상태에 보관됩니다. 옮기려면 로그아웃 후 백업하고 이 계정에서 불러오세요.</p></Show>
+      <Show when={props.localDataNotice}><p class="storage-notice">기존 기기 자료는 로그아웃 상태에 보관됩니다. 옮기려면 설정에서 이전 기기 자료를 계정으로 복사하세요.</p></Show>
       <div
         class="flex-1 min-h-0 overflow-y-auto py-1"
         onDragOver={handleRootDragOver}

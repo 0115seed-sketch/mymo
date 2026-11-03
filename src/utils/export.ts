@@ -1,7 +1,4 @@
 import type { Editor } from '@tiptap/core'
-import { db } from '../db'
-import { flushPendingWrites, trackWrite } from '../stores/persistence'
-import { validateBackup, restoreBackup } from './backup'
 
 function download(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -10,13 +7,6 @@ function download(blob: Blob, filename: string) {
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
-}
-
-const buildBackupFilename = () => {
-  const now = new Date()
-  const date = now.toISOString().slice(0, 10)
-  const time = now.toTimeString().slice(0, 8).replace(/:/g, '-')
-  return `mymo-backup-${date}-${time}.json`
 }
 
 const EXPORT_CSS = `
@@ -155,50 +145,4 @@ export function exportAsText(editor: Editor, title: string) {
   const text = `${title}\n${'='.repeat(title.length || 4)}\n\n${editor.getText()}`
   const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
   download(blob, `${title || '문서'}.txt`)
-}
-
-// Read one transactionally consistent snapshot after pending edits are saved.
-export async function backupData() {
-  const source = db
-  await flushPendingWrites()
-  if (source !== db) throw new Error('계정이 변경되었습니다. 다시 백업해주세요.')
-  const backup = await source.transaction('r', [source.pages, source.folders], async () => ({
-    app: 'mymo', version: 4, exportedAt: Date.now(), pages: await source.pages.toArray(), folders: await source.folders.toArray(),
-  }))
-  download(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' }), buildBackupFilename())
-}
-
-export async function exportRecoveryBackup() {
-  const snapshot = await db.recovery.orderBy('createdAt').last()
-  if (!snapshot) { alert('복원 전 저장된 자료가 없습니다.'); return }
-  const backup = { app: 'mymo', version: 4, exportedAt: snapshot.createdAt, pages: snapshot.pages, folders: snapshot.folders }
-  download(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' }), 'mymo-before-restore.json')
-}
-
-export async function restoreData(): Promise<{ success: boolean; message: string }> {
-  const target = db
-  return new Promise(resolve => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.json'
-    input.oncancel = () => resolve({ success: false, message: '취소되었습니다.' })
-    input.onchange = async () => {
-      const file = input.files?.[0]
-      if (!file) return resolve({ success: false, message: '취소되었습니다.' })
-      try {
-        const data = validateBackup(JSON.parse(await file.text()))
-        if (!confirm('현재 작업 공간을 백업 파일의 페이지 ' + data.pages.length + '개로 교체합니다.\n기존 자료는 복원 전 백업으로 보존됩니다. 계속하시겠습니까?')) {
-          resolve({ success: false, message: '취소되었습니다.' }); return
-        }
-        await flushPendingWrites()
-        if (target !== db) throw new Error('계정이 변경되었습니다. 다시 불러와주세요.')
-        await trackWrite(restoreBackup(target, data))
-        window.dispatchEvent(new Event('mymo:local-change'))
-        resolve({ success: true, message: '복원 완료: 페이지 ' + data.pages.length + '개. 기존 자료는 설정의 복원 전 백업에서 내려받을 수 있습니다.' })
-      } catch (error) {
-        resolve({ success: false, message: '복원하지 않았습니다. ' + (error instanceof Error ? error.message : String(error)) })
-      }
-    }
-    input.click()
-  })
 }

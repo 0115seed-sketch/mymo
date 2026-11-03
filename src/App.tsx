@@ -6,8 +6,8 @@ import { startRealtimeSync, stopRealtimeSync, syncStatus, retrySync } from './st
 import { activateDatabase, hasGuestData } from './db'
 import { liveQuery } from 'dexie'
 import { flushPendingWrites, storageError, pendingLocalWrites, reportStorageError } from './stores/persistence'
-import { darkMode, autoBackupEnabled, autoBackupIntervalMinutes } from './stores/settings'
-import { backupData } from './utils/export'
+import { darkMode } from './stores/settings'
+import { startAccountHistory, stopAccountHistory, historyStatus } from './stores/history'
 import Sidebar from './components/Sidebar'
 import EditorView from './components/EditorView'
 import SettingsModal from './components/SettingsModal'
@@ -19,7 +19,6 @@ function App() {
   const [sidebarVisible, setSidebarVisible] = createSignal(!mobileQuery.matches)
   const [showSettings, setShowSettings] = createSignal(false)
   const [currentEditor, setCurrentEditor] = createSignal<Editor | null>(null)
-  let autoBackupTimer: number | undefined
   const [workspaceReady, setWorkspaceReady] = createSignal(false)
   const [sessionSwitching, setSessionSwitching] = createSignal(true)
   const [guestNotice, setGuestNotice] = createSignal(false)
@@ -94,6 +93,7 @@ function App() {
     sessionRetry()
     const version = ++sessionVersion
     setSessionSwitching(true)
+    stopAccountHistory()
     stopRealtimeSync()
     sessionChain = sessionChain.catch(() => {}).then(async () => {
       if (version !== sessionVersion) return
@@ -116,32 +116,13 @@ function App() {
         error: reportStorageError,
       })
       unsubscribeLocal = () => subscription.unsubscribe()
-      if (uid) startRealtimeSync(uid, source)
+      if (uid) { startRealtimeSync(uid, source); startAccountHistory(uid, source) }
       setWorkspaceReady(true)
       setSessionSwitching(false)
     }).catch(reportStorageError)
   })
-  onCleanup(() => { sessionVersion++; unsubscribeLocal?.(); stopRealtimeSync() })
+  onCleanup(() => { sessionVersion++; unsubscribeLocal?.(); stopAccountHistory(); stopRealtimeSync() })
 
-  createEffect(() => {
-    const enabled = autoBackupEnabled()
-    const minutes = autoBackupIntervalMinutes()
-
-    if (autoBackupTimer) {
-      clearInterval(autoBackupTimer)
-      autoBackupTimer = undefined
-    }
-
-    if (!enabled) return
-
-    autoBackupTimer = window.setInterval(async () => {
-      if (workspaceReady() && !sessionSwitching()) await backupData().catch(reportStorageError)
-    }, Math.max(1, minutes) * 60 * 1000)
-  })
-
-  onCleanup(() => {
-    if (autoBackupTimer) clearInterval(autoBackupTimer)
-  })
 
   return (
     <div class={`flex h-screen overflow-hidden ${darkMode() ? 'bg-[#1a1b2e] text-gray-200' : 'bg-white text-gray-900'}`}>
@@ -314,6 +295,7 @@ function App() {
           {storageError()}
           <button onClick={() => { if (sessionSwitching()) setSessionRetry(v => v + 1); else void flushPendingWrites().catch(reportStorageError) }}>저장 재시도</button>
         </Show>
+        <Show when={user() && historyStatus().error}><button onClick={() => setShowSettings(true)} title={historyStatus().error}>복원 기록 보관 실패 · 확인</button></Show>
       </div>
 
       <SettingsModal
@@ -321,6 +303,8 @@ function App() {
         onClose={() => setShowSettings(false)}
         editor={currentEditor()}
         pageTitle={store.currentPage()?.title || '문서'}
+        currentPageId={store.currentPageId()}
+        onRestored={async id => { await store.loadAll(); if (id) store.setCurrentPageId(id) }}
         onReload={async () => { await store.loadAll() }}
       />
     </div>

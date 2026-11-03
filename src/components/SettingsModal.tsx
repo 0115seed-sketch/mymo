@@ -1,220 +1,72 @@
-import { Show, createSignal } from 'solid-js'
+import { Show, createSignal, createEffect } from 'solid-js'
 import type { Component } from 'solid-js'
-import {
-  darkMode,
-  toggleDarkMode,
-  autoBackupEnabled,
-  setAutoBackupEnabled,
-  autoBackupIntervalMinutes,
-  setAutoBackupIntervalMinutes,
-} from '../stores/settings'
-
 import type { Editor } from '@tiptap/core'
+import { darkMode, toggleDarkMode } from '../stores/settings'
+import { user } from '../stores/auth'
+import { hasGuestData } from '../db'
+import { historyStatus, saveAccountCheckpoint, importPreviousDeviceData } from '../stores/history'
+import RestoreModal from './RestoreModal'
+
 interface SettingsModalProps {
   open: boolean
   onClose: () => void
   editor?: Editor | null
   pageTitle?: string
+  currentPageId?: string | null
   onReload?: () => Promise<void>
+  onRestored?: (id?: string) => Promise<void>
 }
-
-const SettingsModal: Component<SettingsModalProps> = (props) => {
-  const [showExportMenu, setShowExportMenu] = createSignal(false)
-
-  const runRestore = async () => {
-    const m = await import('../utils/export')
-    const r = await m.restoreData()
-    if (r.success) {
-      if (props.onReload) await props.onReload()
-      alert(r.message)
-      location.reload()
-      return
-    }
-    if (r.message !== '취소되었습니다.') {
-      alert(r.message)
-    }
+const SettingsModal: Component<SettingsModalProps> = props => {
+  const [showExport, setShowExport] = createSignal(false)
+  const [showRestore, setShowRestore] = createSignal(false)
+  const [guestData, setGuestData] = createSignal(false)
+  const [message, setMessage] = createSignal('')
+  let visibleUid: string | null = null
+  createEffect(() => {
+    const uid = user()?.uid ?? null
+    if (uid !== visibleUid) { visibleUid = uid; setShowRestore(false); setGuestData(false); setMessage('') }
+    if (!props.open) { setShowRestore(false); return }
+    if (user()) void hasGuestData().then(setGuestData)
+  })
+  const save = async () => {
+    setMessage('')
+    try { const point = await saveAccountCheckpoint(); setMessage(point ? '계정에 보관했습니다.' : '다른 기기가 보관 중입니다. 잠시 후 다시 확인해주세요.') }
+    catch (e) { setMessage(e instanceof Error ? e.message : String(e)) }
   }
-
+  const migrate = async () => {
+    if (!confirm('이 기기의 이전 자료를 현재 계정에 복사합니다. 기존 계정 자료와 이전 기기 원본은 유지됩니다. 계속하시겠습니까?')) return
+    try { const count = await importPreviousDeviceData(); await props.onReload?.(); setMessage('이전 자료 ' + count + '개를 계정에 복사했습니다.') }
+    catch (e) { setMessage(e instanceof Error ? e.message : String(e)) }
+  }
   return (
     <Show when={props.open}>
-      <div
-        class="fixed inset-0 z-1000 flex items-center justify-center"
-        style={{ background: 'var(--bg-overlay)' }}
-        onClick={(e) => { if (e.target === e.currentTarget) props.onClose() }}
-      >
-        <div
-          class="rounded-xl p-6 w-80 max-w-90vw"
-          style={{ background: 'var(--bg-modal)', 'box-shadow': 'var(--shadow-modal)' }}
-        >
-          <div class="flex items-center justify-between mb-3">
-            <span class="font-bold text-lg" style={{ color: 'var(--text-primary)' }}>설정</span>
-            <button
-              class="text-lg cursor-pointer border-none bg-transparent"
-              style={{ color: 'var(--text-tertiary)' }}
-              onClick={() => props.onClose()}
-            >✕</button>
-          </div>
-
-          {/* 다크모드 버튼 */}
-          <div class="py-1">
-            <button
-              type="button"
-              class="w-full flex items-center justify-between rounded-lg px-3 py-2 cursor-pointer transition-colors"
-              style={{
-                background: darkMode() ? 'var(--accent)' : 'var(--bg-active)',
-                color: darkMode() ? '#ffffff' : 'var(--text-primary)',
-                border: darkMode() ? '1px solid transparent' : '1px solid var(--border-light)',
-              }}
-              onClick={toggleDarkMode}
-              aria-pressed={darkMode()}
-            >
-              <span class="text-sm font-semibold">다크 모드</span>
-              <span
-                class="text-xs px-2 py-0.5 rounded-full"
-                style={{
-                  background: darkMode() ? 'rgba(255,255,255,0.2)' : 'var(--bg-modal)',
-                  color: darkMode() ? '#ffffff' : 'var(--text-secondary)',
-                }}
-              >
-                {darkMode() ? 'ON' : 'OFF'}
-              </span>
-            </button>
-          </div>
-
-          {/* 자동 JSON백업 버튼 */}
-          <div class="py-1">
-            <button
-              type="button"
-              class="w-full flex items-center justify-between rounded-lg px-3 py-2 cursor-pointer transition-colors"
-              style={{
-                background: autoBackupEnabled() ? 'var(--accent)' : 'var(--bg-active)',
-                color: autoBackupEnabled() ? '#ffffff' : 'var(--text-primary)',
-                border: autoBackupEnabled() ? '1px solid transparent' : '1px solid var(--border-light)',
-              }}
-              onClick={() => setAutoBackupEnabled(!autoBackupEnabled())}
-              aria-pressed={autoBackupEnabled()}
-            >
-              <span class="text-sm font-semibold">자동 JSON백업</span>
-              <span
-                class="text-xs px-2 py-0.5 rounded-full"
-                style={{
-                  background: autoBackupEnabled() ? 'rgba(255,255,255,0.2)' : 'var(--bg-modal)',
-                  color: autoBackupEnabled() ? '#ffffff' : 'var(--text-secondary)',
-                }}
-              >
-                {autoBackupEnabled() ? 'ON' : 'OFF'}
-              </span>
-            </button>
-
-            <Show when={autoBackupEnabled()}>
-              <div class="mt-2 flex flex-col gap-2 text-sm" style={{ color: 'var(--text-primary)' }}>
-                <div class="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  자동 백업 파일은 브라우저 기본 다운로드 폴더에 저장됩니다.
-                </div>
-
-                {/* 빠른 프리셋 */}
-                <div class="flex gap-1 flex-wrap">
-                  {([5, 10, 30, 60] as const).map((m) => (
-                    <button
-                      type="button"
-                      onClick={() => setAutoBackupIntervalMinutes(m)}
-                      style={{
-                        padding: '2px 10px',
-                        'border-radius': '999px',
-                        'font-size': '12px',
-                        cursor: 'pointer',
-                        border: autoBackupIntervalMinutes() === m
-                          ? '1px solid var(--accent)'
-                          : '1px solid var(--border-light)',
-                        background: autoBackupIntervalMinutes() === m
-                          ? 'var(--accent)'
-                          : 'var(--bg-active)',
-                        color: autoBackupIntervalMinutes() === m ? '#fff' : 'var(--text-primary)',
-                        transition: 'background 0.15s',
-                      }}
-                    >
-                      {m}분
-                    </button>
-                  ))}
-                </div>
-
-                {/* 직접 입력 */}
-                <label class="flex items-center gap-2">
-                  <span style={{ 'white-space': 'nowrap', color: 'var(--text-secondary)' }}>직접 입력</span>
-                  <div class="flex items-center gap-1" style={{ flex: 1 }}>
-                    <input
-                      type="number"
-                      min="1"
-                      max="1440"
-                      value={String(autoBackupIntervalMinutes())}
-                      onInput={(e) => {
-                        const v = parseInt(e.currentTarget.value, 10)
-                        if (Number.isFinite(v) && v >= 1 && v <= 1440) setAutoBackupIntervalMinutes(v)
-                      }}
-                      style={{
-                        width: '72px',
-                        padding: '3px 8px',
-                        'border-radius': '6px',
-                        border: '1px solid var(--border-light)',
-                        background: 'var(--bg-active)',
-                        color: 'var(--text-primary)',
-                        'font-size': '13px',
-                        outline: 'none',
-                      }}
-                    />
-                    <span style={{ 'font-size': '12px', color: 'var(--text-secondary)' }}>분</span>
-                  </div>
-                </label>
-              </div>
+      <div class="restore-overlay" onClick={e => { if (e.target === e.currentTarget) props.onClose() }}>
+        <div class="settings-panel" role="dialog" aria-modal="true" aria-label="설정">
+          <div class="restore-header"><strong>설정</strong><button onClick={props.onClose} aria-label="설정 닫기">닫기</button></div>
+          <button class="settings-row" onClick={toggleDarkMode} aria-pressed={darkMode()}>다크 모드 <span>{darkMode() ? 'ON' : 'OFF'}</span></button>
+          <section class="settings-history">
+            <strong>계정 자동 보관</strong>
+            <p>10분 간격 · 최근 7일 · 내용·이미지 중복 제거</p>
+            <p class="restore-help">로그인·인터넷 연결 상태에서 앱이 열려 있을 때 작동합니다. 만료 기록은 접속 시 정리합니다. 복원 기록은 최대 64MiB까지 보관하며, 무료 사용량 한도에 도달하면 실패를 표시합니다.</p>
+            <Show when={user()} fallback={<p>Google 로그인 후 사용할 수 있습니다. 로그인 전 자료는 이 기기에 저장됩니다.</p>}>
+              <p role="status">{historyStatus().busy ? '계정에 보관 중…' : historyStatus().lastSavedAt ? '최근 보관: ' + new Date(historyStatus().lastSavedAt).toLocaleString('ko-KR', { hour12: false }) : '아직 성공한 계정 보관 기록이 확인되지 않았습니다.'}</p>
+              <Show when={historyStatus().error}><p role="alert" class="restore-error">{historyStatus().error}</p></Show>
+              <div class="restore-actions"><button disabled={historyStatus().busy} onClick={save}>계정 보관 확인·재시도</button><button onClick={() => setShowRestore(true)}>복원 기록 열기</button></div>
+              <Show when={guestData()}><button class="settings-row" disabled={historyStatus().busy} onClick={migrate}>이전 기기 자료를 계정으로 복사</button></Show>
             </Show>
-          </div>
-
-          {/* 내보내기 버튼 (하단) */}
-          <div class="py-1">
-            <button
-              type="button"
-              class="w-full flex items-center justify-between rounded-lg px-3 py-2 cursor-pointer transition-colors"
-              style={{
-                background: showExportMenu() ? 'var(--accent)' : 'var(--bg-active)',
-                color: showExportMenu() ? '#ffffff' : 'var(--text-primary)',
-                border: showExportMenu() ? '1px solid transparent' : '1px solid var(--border-light)',
-              }}
-              onClick={() => setShowExportMenu(!showExportMenu())}
-              aria-expanded={showExportMenu()}
-            >
-              <span class="text-sm font-semibold">내보내기</span>
-              <span class="text-xs" style={{ color: showExportMenu() ? '#ffffff' : 'var(--text-secondary)' }}>▼</span>
-            </button>
-
-            <Show when={showExportMenu() && props.editor}>
-              <div class="flex flex-col gap-1 mt-2">
-                <button class="color-dropdown-item" onClick={() => { import('../utils/export').then(m => m.exportAsPDF(props.editor!, props.pageTitle || '문서')) }}>
-                  <span style="font-size:1.1em">📄</span> <span>PDF</span>
-                </button>
-                <button class="color-dropdown-item" onClick={() => { import('../utils/export').then(m => m.exportAsImage(props.editor!, props.pageTitle || '문서')) }}>
-                  <span style="font-size:1.1em">🖼️</span> <span>이미지 (PNG)</span>
-                </button>
-                <button class="color-dropdown-item" onClick={() => { import('../utils/export').then(m => m.exportAsMarkdown(props.editor!, props.pageTitle || '문서')) }}>
-                  <span style="font-size:1.1em">📝</span> <span>마크다운</span>
-                </button>
-                <button class="color-dropdown-item" onClick={() => { import('../utils/export').then(m => m.exportAsText(props.editor!, props.pageTitle || '문서')) }}>
-                  <span style="font-size:1.1em">📃</span> <span>텍스트</span>
-                </button>
-                <div style="border-top: 1px solid var(--border-light); margin: 4px 0;" />
-                <button class="color-dropdown-item" onClick={() => { import('../utils/export').then(m => m.backupData()) }}>
-                  <span style="font-size:1.1em">💾</span> <span>백업 (.json)</span>
-                </button>
-                <button class="color-dropdown-item" onClick={() => { import('../utils/export').then(m => m.exportRecoveryBackup()) }}>복원 전 자료 내려받기</button>
-                <button class="color-dropdown-item" onClick={runRestore}>
-                  <span style="font-size:1.1em">📂</span> <span>불러오기</span>
-                </button>
-              </div>
-            </Show>
-          </div>
+          </section>
+          <button class="settings-row" onClick={() => setShowExport(!showExport())} aria-expanded={showExport()}>현재 문서 내보내기 <span>{showExport() ? '접기' : '펼치기'}</span></button>
+          <Show when={showExport() && props.editor}><div class="settings-exports">
+            <button onClick={() => { void import('../utils/export').then(m => m.exportAsPDF(props.editor!, props.pageTitle || '문서')) }}>PDF</button>
+            <button onClick={() => { void import('../utils/export').then(m => m.exportAsImage(props.editor!, props.pageTitle || '문서')) }}>이미지 (PNG)</button>
+            <button onClick={() => { void import('../utils/export').then(m => m.exportAsMarkdown(props.editor!, props.pageTitle || '문서')) }}>마크다운</button>
+            <button onClick={() => { void import('../utils/export').then(m => m.exportAsText(props.editor!, props.pageTitle || '문서')) }}>텍스트</button>
+          </div></Show>
+          <Show when={message()}><p role="status">{message()}</p></Show>
         </div>
       </div>
+      <Show when={showRestore()}><RestoreModal currentPageId={props.currentPageId} onClose={() => setShowRestore(false)} onRestored={props.onRestored} /></Show>
     </Show>
   )
 }
-
 export default SettingsModal
