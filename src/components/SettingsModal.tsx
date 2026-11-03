@@ -21,7 +21,10 @@ const SettingsModal: Component<SettingsModalProps> = props => {
   const [showRestore, setShowRestore] = createSignal(false)
   const [guestData, setGuestData] = createSignal(false)
   const [message, setMessage] = createSignal('')
+  let visibleUid: string | null = null
   createEffect(() => {
+    const uid = user()?.uid ?? null
+    if (uid !== visibleUid) { visibleUid = uid; setShowRestore(false); setGuestData(false); setMessage('') }
     if (!props.open) { setShowRestore(false); return }
     if (user()) void hasGuestData().then(setGuestData)
   })

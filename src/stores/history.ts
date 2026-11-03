@@ -44,6 +44,7 @@ export async function saveAccountCheckpoint(reason: 'auto' | 'before-restore' = 
     const existing = await c.running
     if (reason === 'auto') return existing // current operation already recorded this bucket
   }
+  if (!valid(c)) throw new Error('계정이 변경되었습니다.')
   const job = (async () => {
     setHistoryStatus(s => ({ ...s, busy: true, error: '' }))
     try {
