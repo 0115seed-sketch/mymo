@@ -1,20 +1,29 @@
 import { createSignal } from 'solid-js'
-import { db, nextTime, putLocalPages, repairPageCycles, removeLocalPages, type AppDatabase, type Page } from '../db'
+import { db, nextTime, pageTables, putLocalPages, repairPageCycles, removeLocalPages, type AppDatabase, type Page } from '../db'
 import { trackWrite } from './persistence'
+import { preserveConflict } from '../db/conflicts'
+import { sameDocument } from '../utils/documentEquality'
 
 export function createPageStore() {
   const [pages, setPages] = createSignal<Page[]>([])
   const [currentPageId, setCurrentPageId] = createSignal<string | null>(null)
   const [showTrash, setShowTrash] = createSignal(false)
   let loadVersion = 0
-  const loadPages = async () => {
+  let loadChain: Promise<void> = Promise.resolve()
+  const loadPages = () => {
     const source = db
-    const version = ++loadVersion
-    await repairPageCycles(source)
-    const all = await source.pages.orderBy('updatedAt').reverse().toArray()
-    if (db !== source || version !== loadVersion) return
-    setPages(all)
-    if (!all.some(p => p.id === currentPageId())) setCurrentPageId(all.find(p => !p.deleted)?.id ?? null)
+    const version = loadVersion
+    // Every caller waits for its own UI refresh. A background liveQuery refresh
+    // must not cancel the foreground save's refresh and leave stale editor props.
+    const result = loadChain.then(async () => {
+      await repairPageCycles(source)
+      const all = await source.pages.orderBy('updatedAt').reverse().toArray()
+      if (db !== source || version !== loadVersion) return
+      setPages(all)
+      if (!all.some(p => p.id === currentPageId())) setCurrentPageId(all.find(p => !p.deleted)?.id ?? null)
+    })
+    loadChain = result.catch(() => {})
+    return result
   }
   const reset = () => { loadVersion++; setPages([]); setCurrentPageId(null); setShowTrash(false) }
   const activePages = () => pages().filter(p => !p.deleted)
@@ -37,7 +46,7 @@ export function createPageStore() {
     return queue
   }
   const transaction = <T>(database: AppDatabase, task: () => Promise<T>) => database.transaction('rw',
-    [database.pages, database.tombstones, database.outbox, database.syncMeta], task)
+    pageTables(database), task)
   const mutate = <T>(task: (database: AppDatabase) => Promise<T>) => {
     const database = db
     return trackWrite(task(database).then(async result => {
@@ -65,16 +74,14 @@ export function createPageStore() {
   const updatePage = (id: string, updates: Partial<Pick<Page, 'title' | 'content'>>, base: { content?: string; title?: string } = {}) => mutate(database => transaction(database, async () => {
     const old = await database.pages.get(id)
     if (!old || old.deleted) return
-    if ((updates.title === undefined || updates.title === old.title) && (updates.content === undefined || updates.content === old.content)) return
+    if ((updates.title === undefined || updates.title === old.title) && (updates.content === undefined || (updates.content !== undefined && sameDocument(updates.content, old.content)))) return
     const updated = changed(old, updates)
     const modified: Page[] = [updated]
-    if ((base.content !== undefined && base.content !== old.content && updates.content !== old.content) ||
-        (base.title !== undefined && base.title !== old.title && updates.title !== old.title)) {
+    if ((base.content !== undefined && !sameDocument(base.content, old.content) && updates.content !== undefined && !sameDocument(updates.content, old.content)) ||
+        (base.title !== undefined && base.title !== old.title && updates.title !== undefined && updates.title !== old.title)) {
       // A remote/tab update can land between the input event and this transaction.
       // Keep the unseen version rather than silently replacing it.
-      modified.push({ ...old, id: crypto.randomUUID(), title: old.title + ' (충돌 복사본)', parentPageId: null, folderId: null,
-        hidden: false, deleted: false, updatedAt: nextTime(old.updatedAt) })
-      window.dispatchEvent(new Event('mymo:conflict'))
+      if (await preserveConflict(database, old)) window.dispatchEvent(new Event('mymo:conflict'))
     }
     if (updates.title !== undefined) {
       for (const page of await database.pages.toArray()) {

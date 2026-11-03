@@ -24,6 +24,8 @@ export function startRealtimeSync(userId: string, database: AppDatabase) {
   let rerun = false
   let pulled = false
   let foldersDirty = true
+  let unsubscribe: (() => void) | undefined
+  let snapshotChain: Promise<void> = Promise.resolve()
   const pages = collection(firestore, 'users', userId, 'pages')
   const folders = collection(firestore, 'users', userId, 'folders')
   // Folders are legacy metadata (there is no folder editor); preserve both sides.
@@ -85,7 +87,12 @@ export function startRealtimeSync(userId: string, database: AppDatabase) {
         rerun = false
         if (!active) break
         setSyncStatus(s => ({ ...s, state: 'syncing' }))
-        if (!pulled) { await engine.pull(); if (!active) break; pulled = true }
+        if (!pulled) {
+          await engine.pull()
+          if (!active) break
+          pulled = true
+          subscribe()
+        }
         await engine.flush()
         if (foldersDirty) { foldersDirty = false; try { await syncFolderMetadata() } catch (error) { foldersDirty = true; throw error } }
         if (!active) break
@@ -98,22 +105,24 @@ export function startRealtimeSync(userId: string, database: AppDatabase) {
   }
   const retry = () => { void run() }
   retryCurrent = retry
-  const unsubscribe = onSnapshot(pages, { includeMetadataChanges: true }, snapshot => {
-    if (!active || snapshot.metadata.fromCache) return
-    void (async () => {
-      for (const change of snapshot.docChanges()) {
-        if (!active) return
-        if (change.doc.metadata.hasPendingWrites) continue
-        if (change.type === 'removed') await engine.removed(change.doc.id)
-        else {
-          const page = validatePage(change.doc.data())
-          if (page.id !== change.doc.id) throw new Error('클라우드 페이지 식별자가 일치하지 않습니다.')
-          await engine.receive(page)
+  const subscribe = () => {
+    unsubscribe = onSnapshot(pages, { includeMetadataChanges: true }, snapshot => {
+      if (!active || snapshot.metadata.fromCache) return
+      snapshotChain = snapshotChain.then(async () => {
+        for (const change of snapshot.docChanges()) {
+          if (!active) return
+          if (change.doc.metadata.hasPendingWrites) continue
+          if (change.type === 'removed') await engine.removed(change.doc.id)
+          else {
+            const page = validatePage(change.doc.data())
+            if (page.id !== change.doc.id) throw new Error('클라우드 페이지 식별자가 일치하지 않습니다.')
+            await engine.receive(page)
+          }
         }
-      }
-      retry()
-    })().catch(failure)
-  }, failure)
+        retry()
+      }).catch(failure)
+    }, failure)
+  }
   const outboxSub = liveQuery(() => database.outbox.toArray()).subscribe({ next: changes => {
     if (!active) return
     setSyncStatus(s => ({ ...s, pending: changes.length }))
@@ -128,7 +137,7 @@ export function startRealtimeSync(userId: string, database: AppDatabase) {
   stopCurrent = () => {
     active = false
     engine.stop()
-    unsubscribe()
+    unsubscribe?.()
     outboxSub.unsubscribe()
     folderSub.unsubscribe()
     window.removeEventListener('mymo:conflict', onConflict)

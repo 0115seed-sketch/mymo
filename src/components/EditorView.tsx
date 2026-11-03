@@ -1,6 +1,8 @@
 import { createSignal, onMount, onCleanup, createEffect, For, Show } from 'solid-js'
 import { parseDocument } from '../utils/pageValidation'
-import { pendingLocalWrites, reportStorageError } from '../stores/persistence'
+import { EditorSaveQueue } from '../utils/editorSaveQueue'
+import { sameDocument } from '../utils/documentEquality'
+import { pendingLocalWrites, reportStorageError, trackWrite } from '../stores/persistence'
 import type { Component } from 'solid-js'
 import { Editor, mergeAttributes } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
@@ -353,17 +355,12 @@ const EditorView: Component<EditorViewProps> = (props) => {
   const [contextMenuPosition, setContextMenuPosition] = createSignal<{ x: number; y: number } | null>(null)
   let cropNodePos: number | null = null
   let lastAppliedContent = props.content
-  let lastAppliedTitle = props.pageTitle
-  let bodyDirty = false
-  let titleDirty = false
-  let bodyVersion = 0
-  let titleVersion = 0
-  const persistBody = (content: string, baseContent: string) => {
-    const version = ++bodyVersion
-    bodyDirty = true
-    Promise.resolve(props.onUpdate(content, baseContent)).then(() => {
-      if (version === bodyVersion) bodyDirty = false
-    }, reportStorageError)
+  const [bodyDirty, setBodyDirty] = createSignal(false)
+  const [titleDirty, setTitleDirty] = createSignal(false)
+  const bodySaves = new EditorSaveQueue(props.content, (content, base) => props.onUpdate(content, base), setBodyDirty)
+  const titleSaves = new EditorSaveQueue(props.pageTitle, (title, base) => props.onTitleChange(title, base), setTitleDirty)
+  const persistBody = (content: string) => {
+    void trackWrite(bodySaves.request(content)).catch(reportStorageError)
   }
   const [documentError, setDocumentError] = createSignal('')
   const readContent = (content: string) => {
@@ -377,15 +374,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
 
   const commitTitle = () => {
     const next = titleInput?.value ?? titleDraft()
-    if (!titleDirty) return
-    if (next !== props.pageTitle) {
-      const previous = lastAppliedTitle
-      lastAppliedTitle = next
-      const version = ++titleVersion
-      Promise.resolve(props.onTitleChange(next, previous)).then(() => {
-        if (version === titleVersion) titleDirty = false
-      }, reportStorageError)
-    } else titleDirty = false
+    void trackWrite(titleSaves.request(next)).catch(reportStorageError)
   }
 
   onMount(() => {
@@ -432,10 +421,9 @@ const EditorView: Component<EditorViewProps> = (props) => {
       onUpdate: ({ editor: e }) => {
         setEditorVersion(v => v + 1)
         const content = JSON.stringify(e.getJSON())
-        const previous = lastAppliedContent
         lastAppliedContent = content
         // Start the IndexedDB transaction in the input event; no cancellable timer.
-        persistBody(content, previous)
+        persistBody(content)
       },
       onSelectionUpdate: () => {
         if (selectionUpdateRaf != null) return
@@ -450,7 +438,7 @@ const EditorView: Component<EditorViewProps> = (props) => {
     const flushTitle = () => {
       try {
         commitTitle()
-        if (bodyDirty && !documentError()) persistBody(JSON.stringify(ed.getJSON()), lastAppliedContent)
+        if (bodyDirty() && !documentError()) void trackWrite(bodySaves.flush()).catch(reportStorageError)
       } catch (error) { reportStorageError(error) }
     }
     const onVisibility = () => { if (document.visibilityState === 'hidden') flushTitle() }
@@ -513,21 +501,24 @@ const EditorView: Component<EditorViewProps> = (props) => {
     const ed = editor()
     const incoming = props.content
     const saving = pendingLocalWrites()
-    if (!ed || saving || bodyDirty || incoming === lastAppliedContent) return
+    if (!ed || saving || bodyDirty() || incoming === lastAppliedContent) return
     const content = readContent(incoming)
     if (documentError()) { ed.setEditable(false); return }
-    const { from, to } = ed.state.selection
-    ed.commands.setContent(content, { emitUpdate: false })
-    const max = ed.state.doc.content.size
-    ed.commands.setTextSelection({ from: Math.min(from, max), to: Math.min(to, max) })
+    bodySaves.acceptRemote(incoming)
+    if (!sameDocument(JSON.stringify(ed.getJSON()), incoming)) {
+      const { from, to } = ed.state.selection
+      ed.commands.setContent(content, { emitUpdate: false })
+      const max = ed.state.doc.content.size
+      ed.commands.setTextSelection({ from: Math.min(from, max), to: Math.min(to, max) })
+    }
     lastAppliedContent = incoming
   })
 
   // 페이지 전환 시 제목 input 동기화 (IME 중복 방지를 위해 ref 사용)
   createEffect(() => {
     const next = props.pageTitle
-    if (pendingLocalWrites() || composing || titleDirty) return
-    lastAppliedTitle = next
+    if (pendingLocalWrites() || composing || titleDirty()) return
+    titleSaves.acceptRemote(next)
     setTitleDraft(next)
     if (titleInput && !composing && titleInput.value !== next) titleInput.value = next
   })
@@ -571,8 +562,8 @@ const EditorView: Component<EditorViewProps> = (props) => {
           type="text"
           placeholder="제목 없음"
           onCompositionStart={() => { composing = true }}
-          onCompositionEnd={(e) => { composing = false; titleDirty = true; setTitleDraft(e.currentTarget.value); commitTitle() }}
-          onInput={(e) => { titleDirty = true; setTitleDraft(e.currentTarget.value); if (!composing) commitTitle() }}
+          onCompositionEnd={(e) => { composing = false; setTitleDraft(e.currentTarget.value); commitTitle() }}
+          onInput={(e) => { setTitleDraft(e.currentTarget.value); if (!composing) commitTitle() }}
           onBlur={commitTitle}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !composing) {
