@@ -15,6 +15,7 @@ class MemoryStorage implements HistoryStorage {
   locked = false
   reads = 0
   failKind = ''
+  failChunkAfter = Infinity
   async get(id: string) { return structuredClone(this.records.get(id) ?? null) }
   async list(prefix: string, options: ListOptions = {}) {
     let records = [...this.records.values()].filter(r => r.id.startsWith(prefix) && (!options.before || r.id < options.before) && (!options.through || r.id <= options.through) && (!options.after || r.id > options.after)).sort((a,b) => a.id.localeCompare(b.id))
@@ -22,7 +23,7 @@ class MemoryStorage implements HistoryStorage {
     if (options.limit) records = records.slice(0, options.limit)
     return structuredClone(records)
   }
-  async put(records: HistoryRecord[]) { for (const r of records) { if (r.kind === this.failKind) throw new Error('network failure'); this.records.set(r.id, structuredClone(r)) } }
+  async put(records: HistoryRecord[]) { for (const r of records) { if (r.kind === 'chunk' && this.failChunkAfter-- <= 0) throw new Error('partial chunk failure'); if (r.kind === this.failKind) throw new Error('network failure'); this.records.set(r.id, structuredClone(r)) } }
   async remove(ids: string[]) { ids.forEach(id => this.records.delete(id)) }
   async currentPages() { this.reads++; return structuredClone(this.pages) }
   async exclusive<T>(task: (control: HistoryControl, save: () => Promise<void>) => Promise<T>) {
@@ -94,6 +95,36 @@ describe('account history snapshots', () => {
     storage.failKind = ''
     await archive.capture('auto', NOW + 1)
     expect(storage.points()).toHaveLength(1)
+  })
+  it('tracks partial chunks and collects abandoned uploads after the grace period', async () => {
+    const storage = new MemoryStorage(), archive = new AccountArchive(storage)
+    storage.pages[0].content = body('수학🙂'.repeat(30000))
+    storage.failChunkAfter = 1
+    await expect(archive.capture('auto', NOW)).rejects.toThrow('partial chunk failure')
+    const pending = storage.objects()[0]
+    expect(pending.ready).toBe(false)
+    expect([...storage.records.keys()].filter(k => k.startsWith(CHUNK_PREFIX))).toHaveLength(1)
+    expect((storage.records.get(CONTROL_ID) as HistoryControl).usedBytes).toBe(pending.bytes)
+    await expect(archive.readObject(pending.hash)).rejects.toThrow('찾을 수')
+    storage.pages = []
+    await archive.capture('auto', NOW + 25 * 60 * 60 * 1000)
+    expect(storage.objects()).toHaveLength(0)
+    expect([...storage.records.keys()].filter(k => k.startsWith(CHUNK_PREFIX))).toHaveLength(0)
+    expect((storage.records.get(CONTROL_ID) as HistoryControl).usedBytes).toBe(0)
+  })
+  it('retries a partial upload without reserving its size twice', async () => {
+    const storage = new MemoryStorage(), archive = new AccountArchive(storage)
+    storage.pages[0].content = body('수학🙂'.repeat(30000))
+    storage.failChunkAfter = 1
+    await expect(archive.capture('auto', NOW)).rejects.toThrow('partial chunk failure')
+    const bytes = (storage.records.get(CONTROL_ID) as HistoryControl).usedBytes
+    storage.failChunkAfter = Infinity
+    const point = (await archive.capture('auto', NOW + 1))!
+    expect(storage.objects()).toHaveLength(1)
+    expect(storage.objects()[0].ready).toBe(true)
+    expect((storage.records.get(CONTROL_ID) as HistoryControl).usedBytes).toBe(bytes)
+    expect((storage.records.get(CONTROL_ID) as HistoryControl).objectCount).toBe(1)
+    expect((await archive.readPage(point, storage.pages[0].id, NOW)).content).toContain('수학🙂')
   })
   it('detects corrupted payloads before they can be used to restore', async () => {
     const storage = new MemoryStorage(), archive = new AccountArchive(storage)

@@ -15,7 +15,7 @@ export interface Checkpoint {
   id: string; kind: 'checkpoint'; createdAt: number; reason: 'auto' | 'before-restore'
   pages: PageReference[]; objects: string[]
 }
-export interface HistoryObject { id: string; kind: 'object'; createdAt: number; hash: string; parts: number; bytes: number }
+export interface HistoryObject { id: string; kind: 'object'; createdAt: number; hash: string; parts: number; bytes: number; ready?: boolean }
 export interface HistoryChunk { id: string; kind: 'chunk'; createdAt: number; data: string }
 export interface HistoryControl {
   id: string; kind: 'control'; createdAt: number; owner: string; leaseUntil: number

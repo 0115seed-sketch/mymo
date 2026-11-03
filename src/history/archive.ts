@@ -23,9 +23,9 @@ export class AccountArchive {
   private async saveObject(text: string, now: number, control: HistoryControl, save: () => Promise<void>) {
     const hash = await hashText(text)
     const existing = await this.storage.get(OBJECT_PREFIX + hash)
-    if (existing?.kind === 'object') return hash
+    if (existing?.kind === 'object' && existing.ready !== false) return hash
     const bytes = encoder.encode(text).length
-    if (control.usedBytes + bytes > MAX_HISTORY_BYTES || control.objectCount >= MAX_OBJECTS) {
+    if (!existing && (control.usedBytes + bytes > MAX_HISTORY_BYTES || control.objectCount >= MAX_OBJECTS)) {
       throw new Error('복원 기록 보관 한도(64MiB 또는 5,000개 내용)에 도달했습니다. 현재 문서는 유지되며, 오래된 기록 정리 후 다시 보관합니다.')
     }
     const characters = Array.from(text)
@@ -34,18 +34,22 @@ export class AccountArchive {
       id: CHUNK_PREFIX + hash + '_' + String(chunks.length).padStart(5, '0'), kind: 'chunk', createdAt: now,
       data: characters.slice(i, i + CHUNK_CHARACTERS).join(''),
     })
-    // The descriptor is the commit marker: never publish it before every part exists.
-    await this.storage.put(chunks)
-    const descriptor: HistoryObject = { id: OBJECT_PREFIX + hash, kind: 'object', createdAt: now, hash, parts: chunks.length, bytes }
+    const descriptor: HistoryObject = { id: OBJECT_PREFIX + hash, kind: 'object', createdAt: now, hash, parts: chunks.length, bytes, ready: false }
+    if (!existing) {
+      // Reserve capacity before upload; a failed reservation is conservatively counted until GC.
+      control.usedBytes += bytes
+      control.objectCount++
+      await save()
+    }
+    // Track incomplete uploads so interrupted chunks can be retried or collected.
     await this.storage.put([descriptor])
-    control.usedBytes += bytes
-    control.objectCount++
-    await save()
+    await this.storage.put(chunks)
+    await this.storage.put([{ ...descriptor, ready: true }])
     return hash
   }
   async readObject(hash: string) {
     const descriptor = await this.storage.get(OBJECT_PREFIX + hash)
-    if (!descriptor || descriptor.kind !== 'object' || !Number.isInteger(descriptor.parts) || descriptor.parts < 1 || descriptor.parts > 2000) throw new Error('복원 기록의 내용을 찾을 수 없습니다.')
+    if (!descriptor || descriptor.kind !== 'object' || descriptor.ready === false || !Number.isInteger(descriptor.parts) || descriptor.parts < 1 || descriptor.parts > 2000) throw new Error('복원 기록의 내용을 찾을 수 없습니다.')
     const parts: string[] = []
     for (let i = 0; i < descriptor.parts; i++) {
       const chunk = await this.storage.get(CHUNK_PREFIX + hash + '_' + String(i).padStart(5, '0'))
@@ -70,10 +74,11 @@ export class AccountArchive {
       if (object.kind !== 'object') continue
       // Keep recent orphan uploads so retries can reuse them after a failed publish.
       if (!referenced.has(object.hash) && object.createdAt < now - 24 * 60 * 60 * 1000) {
-        // Remove the commit marker first; a partially interrupted delete cannot look complete.
-        await this.storage.remove([object.id])
+        // Keep a pending descriptor until all chunks are removed, making interrupted GC retryable.
+        await this.storage.put([{ ...object, ready: false }])
         const ids = Array.from({ length: object.parts }, (_, i) => CHUNK_PREFIX + object.hash + '_' + String(i).padStart(5, '0'))
         await this.storage.remove(ids)
+        await this.storage.remove([object.id])
       } else { usedBytes += object.bytes; objectCount++ }
       if (++scanned % 20 === 0) await save() // renew the cross-device lease during longer cleanups
     }
