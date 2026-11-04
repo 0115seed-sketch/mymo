@@ -5,7 +5,7 @@ import { db as firestore } from '../lib/firebase'
 import { type AppDatabase, type CloudPage, type Folder, isTombstone, revisionOf } from '../db'
 import { validatePage } from '../utils/pageValidation'
 import { PageSyncEngine, type RemotePages } from './syncEngine'
-import { HISTORY_PREFIX } from '../history/model'
+import { HISTORY_PREFIX, isHistoryId } from '../history/model'
 
 type SyncState = { state: 'local' | 'syncing' | 'synced' | 'offline' | 'error'; pending: number; conflicts: number; message: string }
 export const [syncStatus, setSyncStatus] = createSignal<SyncState>({ state: 'local', pending: 0, conflicts: 0, message: '' })
@@ -37,13 +37,17 @@ export function startRealtimeSync(userId: string, database: AppDatabase) {
   const folders = collection(firestore, 'users', userId, 'folders')
   // Folders are legacy metadata (there is no folder editor); preserve both sides.
   const syncFolderMetadata = async () => {
+    // The bare history prefix is a reserved Firestore document ID. Use valid
+    // bounds and filter any history IDs admitted by the lower query.
+    const afterHistoryPrefix = HISTORY_PREFIX.slice(0, -1) + '`' // ASCII successor to the final underscore
     const snapshots = await Promise.all([
-      getDocsFromServer(query(folders, where(documentId(), '<', HISTORY_PREFIX))),
-      getDocsFromServer(query(folders, where(documentId(), '>=', HISTORY_PREFIX + '\uf8ff'))),
+      getDocsFromServer(query(folders, where(documentId(), '<', HISTORY_PREFIX + '!'))),
+      getDocsFromServer(query(folders, where(documentId(), '>=', afterHistoryPrefix))),
     ])
     if (!active) return
     const remote = new Map<string, Folder>()
     for (const item of snapshots.flatMap(snapshot => snapshot.docs)) {
+      if (isHistoryId(item.id)) continue
       const value = item.data() as Folder
       if (value.id !== item.id || typeof value.name !== 'string' || !Number.isFinite(value.createdAt) || !Number.isFinite(value.order)) throw new Error('클라우드 폴더 형식을 확인해주세요.')
       remote.set(item.id, { id: value.id, name: value.name, order: value.order, createdAt: value.createdAt })
