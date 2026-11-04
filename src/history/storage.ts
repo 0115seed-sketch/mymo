@@ -29,11 +29,25 @@ export function firebaseHistoryStorage(uid: string, active: () => boolean): Hist
       const constraints: QueryConstraint[] = [orderBy(documentId())]
       constraints.push(options.after ? startAfter(options.after) : startAt(prefix))
       constraints.push(options.through ? endAt(options.through) : endBefore(options.before ?? prefix + '\uf8ff'))
-      if (options.limit) constraints.push(options.descending ? limitToLast(options.limit) : limit(options.limit))
-      const snapshots = await getDocsFromServer(query(folderCollection, ...constraints))
+      const size = options.limit
+      const listAscending = () => getDocsFromServer(query(folderCollection, ...constraints))
+      let snapshots
+      if (size && options.descending) {
+        try {
+          snapshots = await getDocsFromServer(query(folderCollection, ...constraints, limitToLast(size)))
+        } catch (error) {
+          // Firestore reverses the document-ID order for limitToLast.
+          // Existing projects may only have the ascending index.
+          if ((error as { code?: string }).code !== 'failed-precondition') throw error
+          guard()
+          snapshots = await listAscending()
+        }
+      } else {
+        snapshots = await getDocsFromServer(query(folderCollection, ...constraints, ...(size ? [limit(size)] : [])))
+      }
       guard()
       const records = snapshots.docs.map(snapshot => read(snapshot.id, snapshot.data()))
-      return options.descending ? records.reverse() : records
+      return options.descending ? records.reverse().slice(0, size ?? records.length) : records
     },
     put: async records => {
       for (let i = 0; i < records.length; i += 20) {
